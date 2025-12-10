@@ -945,7 +945,7 @@ function IndexPopup() {
   // Voice Enrollment Modal state
   const [voiceEnrollmentModal, setVoiceEnrollmentModal] = useState<{
     show: boolean
-    mode: 'enroll' | 'verify'
+    mode: 'enroll' | 'verify' | 'verify-to-disable'
     walletAddress: string
     enrolledFingerprint?: string
   }>({
@@ -10652,6 +10652,29 @@ function IndexPopup() {
           onComplete={async (result) => {
             setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
             
+            // Handle verify-to-disable mode - if voice verified, disable the layer
+            if (voiceEnrollmentModal.mode === 'verify-to-disable') {
+              if (result.success) {
+                try {
+                  setUpdatingSecurityLayer('voice')
+                  await updateSecurityLayer(voiceEnrollmentModal.walletAddress, 'voice', false)
+                  setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: false } : null)
+                  setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'disabled', deviceType: 'voice' })
+                  setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                } catch (err: any) {
+                  console.error('[Voice Disable] Error:', err)
+                  setStatus(err.message || 'Failed to disable voice layer')
+                  setTimeout(() => setStatus(''), 3000)
+                } finally {
+                  setUpdatingSecurityLayer(null)
+                }
+              } else {
+                setStatus(result.error || 'Voice verification failed')
+                setTimeout(() => setStatus(''), 3000)
+              }
+              return
+            }
+            
             if (result.success && result.fingerprint) {
               try {
                 // Save the voice fingerprint to server using the API directly (not chrome.runtime)
@@ -11754,44 +11777,33 @@ function IndexPopup() {
                   if (updatingSecurityLayer) return
                   
                   if (securitySettings?.biometricEnabled) {
-                    // Disable Biometric - requires password
-                    setConfirmPassword("")
-                    setConfirmPasswordError("")
-                    setConfirmModal({
-                      show: true,
-                      title: 'Disable Biometric',
-                      message: 'Enter this wallet\'s password to disable biometric (FaceID/TouchID) verification.',
-                      confirmText: 'Disable',
-                      danger: true,
-                      requirePassword: true,
-                      onConfirm: async (password?: string) => {
-                        if (!password) {
-                          setConfirmPasswordError("Password is required")
-                          return
-                        }
-                        try {
-                          // PWA: Verify password against server API with wallet's public key
-                          const response = await verifyServerPassword(editingWallet.publicKey, password)
-                          if (response.success) {
-                            setUpdatingSecurityLayer('biometric')
-                            // Also remove local biometric credential
-                            const { removeBiometric } = await import('./utils/native-biometric')
-                            removeBiometric(editingWallet.publicKey)
-                            await updateSecurityLayer(editingWallet.publicKey, 'biometric', false)
-                            setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: false, biometricCredentialId: null } : null)
-                            setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
-                            setSuccessModal({ show: true, deviceName: 'Biometric', type: 'disabled', deviceType: 'biometric' })
-                            setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
-                          } else {
-                            setConfirmPasswordError("Incorrect password")
-                          }
-                        } catch (error: any) {
-                          setConfirmPasswordError(error.message || "Failed to update")
-                        } finally {
-                          setUpdatingSecurityLayer(null)
-                        }
+                    // Disable Biometric - verify with biometric itself (not password)
+                    setUpdatingSecurityLayer('biometric')
+                    try {
+                      const { verifyBiometric, removeBiometric } = await import('./utils/native-biometric')
+                      
+                      // Verify with Face ID/Touch ID before disabling
+                      const verifyResult = await verifyBiometric(editingWallet.publicKey)
+                      
+                      if (verifyResult.success) {
+                        // Biometric verified - now disable it
+                        removeBiometric(editingWallet.publicKey)
+                        await updateSecurityLayer(editingWallet.publicKey, 'biometric', false)
+                        setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: false, biometricCredentialId: null } : null)
+                        setSuccessModal({ show: true, deviceName: 'Biometric', type: 'disabled', deviceType: 'biometric' })
+                        setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                      } else {
+                        // Verification failed or cancelled
+                        setStatus(verifyResult.error || 'Biometric verification failed')
+                        setTimeout(() => setStatus(''), 3000)
                       }
-                    })
+                    } catch (error: any) {
+                      console.error('[Biometric] Disable error:', error)
+                      setStatus(error.message || 'Failed to verify biometric')
+                      setTimeout(() => setStatus(''), 3000)
+                    } finally {
+                      setUpdatingSecurityLayer(null)
+                    }
                   } else {
                     // Enable Biometric - requires password first
                     const passwordCheck = await checkServerPassword(editingWallet?.publicKey || '')
@@ -12010,42 +12022,36 @@ function IndexPopup() {
                   }
                   
                   if (securitySettings?.voiceLayerEnabled) {
-                    console.log('[Voice Layer] Entering disable flow')
-                    // Disable Voice Layer - requires password
-                    setConfirmPassword("")
-                    setConfirmPasswordError("")
-                    setConfirmModal({
-                      show: true,
-                      title: 'Disable Voice Layer',
-                      message: 'Enter this wallet\'s password to disable voice as a security layer.',
-                      confirmText: 'Disable',
-                      danger: true,
-                      requirePassword: true,
-                      onConfirm: async (password?: string) => {
-                        if (!password) {
-                          setConfirmPasswordError("Password is required")
-                          return
-                        }
-                        try {
-                          // PWA: Verify password against server API with wallet's public key
-                          const response = await verifyServerPassword(editingWallet.publicKey, password)
-                          if (response.success) {
-                            setUpdatingSecurityLayer('voice')
-                            await updateSecurityLayer(editingWallet.publicKey, 'voice', false)
-                            setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: false } : null)
-                            setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
-                            setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'disabled', deviceType: 'voice' })
-                            setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
-                          } else {
-                            setConfirmPasswordError("Incorrect password")
-                          }
-                        } catch (error: any) {
-                          setConfirmPasswordError(error.message || "Failed to update")
-                        } finally {
-                          setUpdatingSecurityLayer(null)
-                        }
+                    console.log('[Voice Layer] Entering disable flow - verify with voice')
+                    // Disable Voice Layer - verify with voice itself (not password)
+                    
+                    try {
+                      // Get the user's voice fingerprint from server
+                      const fpResult = await getVoiceFingerprint(editingWallet.publicKey)
+                      
+                      if (!fpResult.fingerprint) {
+                        // No fingerprint on server - just disable
+                        setUpdatingSecurityLayer('voice')
+                        await updateSecurityLayer(editingWallet.publicKey, 'voice', false)
+                        setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: false } : null)
+                        setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'disabled', deviceType: 'voice' })
+                        setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                        setUpdatingSecurityLayer(null)
+                        return
                       }
-                    })
+                      
+                      // Open voice verification modal with enrolled fingerprint
+                      setVoiceEnrollmentModal({
+                        show: true,
+                        mode: 'verify-to-disable',
+                        walletAddress: editingWallet.publicKey,
+                        enrolledFingerprint: fpResult.fingerprint
+                      })
+                    } catch (error: any) {
+                      console.error('[Voice Layer] Disable error:', error)
+                      setStatus(error.message || 'Failed to verify voice')
+                      setTimeout(() => setStatus(''), 3000)
+                    }
                   } else {
                     // Enable Voice Layer - ALWAYS requires re-recording the phrase
                     // The new fingerprint will overwrite the old one on the server

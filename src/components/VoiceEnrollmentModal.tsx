@@ -10,7 +10,7 @@ const API_BASE = 'https://api.assemblyai.com/v2';
 
 interface VoiceEnrollmentModalProps {
   show: boolean;
-  mode: 'enroll' | 'verify';
+  mode: 'enroll' | 'verify' | 'verify-to-disable';
   walletAddress: string;
   enrolledFingerprint?: string;
   onComplete: (result: { success: boolean; fingerprint?: string; error?: string }) => void;
@@ -83,11 +83,11 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   
-  const totalSamples = mode === 'verify' ? 1 : 3;
+  const totalSamples = (mode === 'verify' || mode === 'verify-to-disable') ? 1 : 3;
   
   // Parse enrolled passphrase for verification
   const enrolledPassphrase = React.useMemo(() => {
-    if (mode === 'verify' && enrolledFingerprint) {
+    if ((mode === 'verify' || mode === 'verify-to-disable') && enrolledFingerprint) {
       try {
         const decoded = decodeURIComponent(enrolledFingerprint);
         const data = JSON.parse(atob(decoded));
@@ -105,7 +105,10 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
     if (show) {
       setCurrentSample(0);
       setIsRecording(false);
-      setStatus(mode === 'verify' ? 'Tap to unlock with your voice' : 'Tap to record your voice');
+      const isVerifyMode = mode === 'verify' || mode === 'verify-to-disable';
+      setStatus(isVerifyMode 
+        ? (mode === 'verify-to-disable' ? 'Tap to verify voice to disable' : 'Tap to unlock with your voice') 
+        : 'Tap to record your voice');
       setStatusType('');
       setWaveBars(Array(24).fill(6));
       storedPassphraseRef.current = '';
@@ -335,7 +338,7 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
   }, [isRecording, enrolledPassphrase, recordAudio, onComplete]);
 
   const handleRecordClick = useCallback(() => {
-    if (mode === 'verify') {
+    if (mode === 'verify' || mode === 'verify-to-disable') {
       processVerification();
     } else {
       processEnrollment();

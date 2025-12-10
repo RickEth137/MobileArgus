@@ -10728,7 +10728,8 @@ function IndexPopup() {
                   setUpdatingSecurityLayer('voice')
                   await updateSecurityLayer(voiceEnrollmentModal.walletAddress, 'voice', true)
                   setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: true, voiceEnrolled: true } : null)
-                  setVoiceUnlockEnabled(true)
+                  // NOTE: Do NOT enable voiceUnlockEnabled here - that's a separate setting for wallet unlock
+                  // Voice layer for transactions is different from voice unlock for the wallet
                   setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'enabled', deviceType: 'voice' })
                   setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
                   setUpdatingSecurityLayer(null)

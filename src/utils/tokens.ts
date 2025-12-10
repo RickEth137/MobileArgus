@@ -1,5 +1,5 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
 export interface TokenSocials {
   twitter?: string;
@@ -346,13 +346,21 @@ const fetchTokenPrices = async (mints: string[]): Promise<Map<string, { usdPrice
 
 export const fetchUserTokens = async (connection: Connection, walletPublicKey: PublicKey): Promise<TokenData[]> => {
   try {
-    // 1. Fetch all token accounts
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletPublicKey, {
-      programId: TOKEN_PROGRAM_ID,
-    });
+    // 1. Fetch all token accounts (both standard SPL Token and Token-2022 for pump.fun tokens)
+    const [tokenAccounts, token2022Accounts] = await Promise.all([
+      connection.getParsedTokenAccountsByOwner(walletPublicKey, {
+        programId: TOKEN_PROGRAM_ID,
+      }),
+      connection.getParsedTokenAccountsByOwner(walletPublicKey, {
+        programId: TOKEN_2022_PROGRAM_ID,
+      })
+    ]);
+
+    // Combine both account types
+    const allTokenAccounts = [...tokenAccounts.value, ...token2022Accounts.value];
 
     // 2. Filter for non-zero balance
-    const activeTokens = tokenAccounts.value.filter((account) => {
+    const activeTokens = allTokenAccounts.filter((account) => {
       const amount = account.account.data.parsed.info.tokenAmount.uiAmount;
       return amount > 0;
     });

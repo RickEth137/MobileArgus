@@ -275,7 +275,33 @@ export async function verifyVoice(enrolledFingerprint: string): Promise<VoiceVer
       return { success: false, confidence: 0, error: 'Microphone permission denied' };
     }
     
-    const storedFp: number[] = JSON.parse(enrolledFingerprint);
+    // Fingerprint is base64 encoded JSON - decode first
+    let fingerprintData: any;
+    try {
+      const decoded = atob(enrolledFingerprint);
+      fingerprintData = JSON.parse(decoded);
+    } catch (e) {
+      // Try direct JSON parse if not base64
+      try {
+        fingerprintData = JSON.parse(enrolledFingerprint);
+      } catch (e2) {
+        console.error('[Voice] Cannot parse fingerprint:', e2);
+        return { success: false, confidence: 0, error: 'Invalid voice fingerprint format' };
+      }
+    }
+    
+    // Extract stored features - could be in different formats
+    let storedFp: number[];
+    if (Array.isArray(fingerprintData)) {
+      storedFp = fingerprintData;
+    } else if (fingerprintData.features && Array.isArray(fingerprintData.features)) {
+      storedFp = fingerprintData.features;
+    } else if (fingerprintData.averageFeatures && Array.isArray(fingerprintData.averageFeatures)) {
+      storedFp = fingerprintData.averageFeatures;
+    } else {
+      console.error('[Voice] Unknown fingerprint format:', fingerprintData);
+      return { success: false, confidence: 0, error: 'Unknown voice fingerprint format' };
+    }
     
     // Record new sample
     const audioData = await recordAudioSample(VOICE_SETUP_CONFIG.maxDuration);

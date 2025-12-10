@@ -735,13 +735,13 @@ function IndexPopup() {
     { symbol: "SOL", name: "Solana", logoURI: "https://assets.coingecko.com/coins/images/4128/standard/solana.png", moonpayCode: "sol" },
     { symbol: "USDC", name: "USD Coin", logoURI: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png", moonpayCode: "usdc_sol" },
   ]
-  // ARGUS token info
+  // ARGUS token info - Real contract address
   const ARGUS_TOKEN = {
-    mint: "ARGUSmfQsLFZyiBbVrPks6C2cUsonmb3kFqqRghqpump",
+    mint: "EbD3Qptmezx1mEwMfa88q5L5CrA4QrBwmvvZUhEapump",
     symbol: "ARGUS", 
     name: "ARGUS Protocol",
-    logoURI: chrome.runtime?.getURL?.("assets/arguslogo.png") || "",
-    decimals: 9
+    logoURI: "/assets/arguslogo.png",
+    decimals: 6
   }
   const [popularTokens] = useState([
     { mint: "So11111111111111111111111111111111111111112", symbol: "SOL", name: "Solana", logoURI: "https://assets.coingecko.com/coins/images/4128/standard/solana.png", decimals: 9 },
@@ -4921,63 +4921,88 @@ function IndexPopup() {
 
                 {addWalletView === 'import-seed' && (
                   <div>
-                    <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
-                      Enter your 12 or 24 word seed phrase, separated by spaces.
-                    </p>
-                    <textarea
-                      placeholder="Enter seed phrase..."
-                      value={importInput}
-                      onChange={(e) => setImportInput(e.target.value)}
-                      style={{
-                        width: '100%', height: 100, padding: '14px 16px',
-                        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 12, color: '#fff', fontSize: 14, marginBottom: 12,
-                        outline: 'none', resize: 'none', fontFamily: 'monospace'
-                      }}
-                    />
-                    {status && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{status}</div>}
-                    <button
-                      onClick={async () => {
-                        setIsAddingWallet(true);
-                        setStatus('');
-                        try {
-                          const bip39 = await import('bip39');
-                          const words = importInput.trim().split(/\s+/);
-                          if (words.length !== 12 && words.length !== 24) {
-                            throw new Error('Seed phrase must be 12 or 24 words');
-                          }
-                          if (!bip39.validateMnemonic(importInput.trim())) {
-                            throw new Error('Invalid seed phrase');
-                          }
-                          const seed = await bip39.mnemonicToSeed(importInput.trim());
-                          const keypair = Keypair.fromSeed(seed.slice(0, 32));
-                          
-                          const newAccount: WalletAccount = {
-                            index: 0,
-                            name: 'Account 1',
-                            publicKey: keypair.publicKey.toBase58(),
-                            secretKey: bs58.encode(keypair.secretKey)
-                          };
-                          
-                          localStorage.setItem('geovault_mnemonic', JSON.stringify(importInput.trim()));
-                          setStoredSecret(newAccount.secretKey);
-                          setStoredAccounts([newAccount]);
-                          setWalletAccounts([newAccount]);
-                          setWallet(keypair);
-                          
-                          setShowAddWalletModal(false);
-                          setImportInput('');
-                          setView('main');
-                        } catch (err: any) {
-                          setStatus(err.message || 'Failed to import wallet');
-                        } finally {
-                          setIsAddingWallet(false);
-                        }
-                      }}
-                      disabled={isAddingWallet || !importInput.trim()}
-                      style={{
-                        width: '100%', padding: '16px',
-                        background: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.1)' : '#fff',
+                    {!importVaultDetected.detected ? (
+                      <>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
+                          Enter your 12 or 24 word seed phrase, separated by spaces.
+                        </p>
+                        <textarea
+                          placeholder="Enter seed phrase..."
+                          value={importInput}
+                          onChange={(e) => setImportInput(e.target.value)}
+                          style={{
+                            width: '100%', height: 100, padding: '14px 16px',
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 12, color: '#fff', fontSize: 14, marginBottom: 12,
+                            outline: 'none', resize: 'none', fontFamily: 'monospace'
+                          }}
+                        />
+                        {status && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{status}</div>}
+                        <button
+                          onClick={async () => {
+                            setIsAddingWallet(true);
+                            setStatus('');
+                            try {
+                              const bip39 = await import('bip39');
+                              const words = importInput.trim().split(/\s+/);
+                              if (words.length !== 12 && words.length !== 24) {
+                                throw new Error('Seed phrase must be 12 or 24 words');
+                              }
+                              if (!bip39.validateMnemonic(importInput.trim())) {
+                                throw new Error('Invalid seed phrase');
+                              }
+                              const seed = await bip39.mnemonicToSeed(importInput.trim());
+                              const keypair = Keypair.fromSeed(seed.slice(0, 32));
+                              const publicKey = keypair.publicKey.toBase58();
+                              
+                              // Check if this wallet has an existing vault
+                              console.log('[Onboarding Import Seed] Checking if wallet has vault:', publicKey);
+                              const vaultData = await checkVaultExists(publicKey);
+                              console.log('[Onboarding Import Seed] Vault check result:', vaultData);
+                              
+                              if (vaultData && (vaultData.exists || vaultData.multisigPda)) {
+                                // Vault detected - show password input
+                                console.log('[Onboarding Import Seed] Vault detected, showing password input');
+                                setImportVaultDetected({
+                                  detected: true,
+                                  publicKey,
+                                  keypair,
+                                  walletName: 'Account 1'
+                                });
+                                // Store mnemonic for after password verification
+                                localStorage.setItem('geovault_mnemonic_temp', JSON.stringify(importInput.trim()));
+                                setIsAddingWallet(false);
+                                return;
+                              }
+                              
+                              // No vault - import directly
+                              console.log('[Onboarding Import Seed] No vault found, importing directly');
+                              const newAccount: WalletAccount = {
+                                index: 0,
+                                name: 'Account 1',
+                                publicKey,
+                                secretKey: bs58.encode(keypair.secretKey)
+                              };
+                              
+                              localStorage.setItem('geovault_mnemonic', JSON.stringify(importInput.trim()));
+                              setStoredSecret(newAccount.secretKey);
+                              setStoredAccounts([newAccount]);
+                              setWalletAccounts([newAccount]);
+                              setWallet(keypair);
+                              
+                              setShowAddWalletModal(false);
+                              setImportInput('');
+                              setView('main');
+                            } catch (err: any) {
+                              setStatus(err.message || 'Failed to import wallet');
+                            } finally {
+                              setIsAddingWallet(false);
+                            }
+                          }}
+                          disabled={isAddingWallet || !importInput.trim()}
+                          style={{
+                            width: '100%', padding: '16px',
+                            background: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.1)' : '#fff',
                         border: 'none', borderRadius: 14,
                         color: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.3)' : '#000',
                         fontSize: 16, fontWeight: 600,
@@ -4986,67 +5011,350 @@ function IndexPopup() {
                     >
                       {isAddingWallet ? 'Importing...' : 'Import Wallet'}
                     </button>
+                      </>
+                    ) : (
+                      /* Vault Password Required UI for Seed Import in Onboarding */
+                      <>
+                        <div style={{ 
+                          background: 'rgba(168, 85, 247, 0.1)', 
+                          border: '1px solid rgba(168, 85, 247, 0.3)',
+                          borderRadius: 12, 
+                          padding: 16, 
+                          marginBottom: 16 
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
+                              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                            </svg>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: '#a855f7' }}>Vault Detected</span>
+                          </div>
+                          <p style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.6)', margin: 0 }}>
+                            This wallet has an existing ARGUS Vault. Enter your vault password to continue.
+                          </p>
+                        </div>
+                        
+                        <input
+                          type="password"
+                          value={importVaultPassword}
+                          onChange={(e) => setImportVaultPassword(e.target.value)}
+                          placeholder="Enter vault password"
+                          style={{
+                            width: '100%', padding: '14px 16px',
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 12, color: '#fff', fontSize: 14, marginBottom: 12,
+                            outline: 'none', boxSizing: 'border-box'
+                          }}
+                        />
+                        
+                        {importVaultError && (
+                          <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{importVaultError}</div>
+                        )}
+                        
+                        <button
+                          onClick={async () => {
+                            if (!importVaultDetected.keypair || !importVaultPassword.trim()) return;
+                            setIsVerifyingImportPassword(true);
+                            setImportVaultError('');
+                            
+                            try {
+                              const verifyResult = await verifyServerPassword(importVaultDetected.publicKey, importVaultPassword);
+                              
+                              if (verifyResult.success) {
+                                // Password correct - complete import
+                                const newAccount: WalletAccount = {
+                                  index: 0,
+                                  name: importVaultDetected.walletName,
+                                  publicKey: importVaultDetected.publicKey,
+                                  secretKey: bs58.encode(importVaultDetected.keypair!.secretKey)
+                                };
+                                
+                                // Move temp mnemonic to permanent storage
+                                const tempMnemonic = localStorage.getItem('geovault_mnemonic_temp');
+                                if (tempMnemonic) {
+                                  localStorage.setItem('geovault_mnemonic', tempMnemonic);
+                                  localStorage.removeItem('geovault_mnemonic_temp');
+                                }
+                                
+                                // Store the password hash for unlock screen
+                                try {
+                                  if (crypto.subtle) {
+                                    const encoder = new TextEncoder();
+                                    const data = encoder.encode(importVaultPassword);
+                                    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                                    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                                    localStorage.setItem('geovault_password_hash', passwordHash);
+                                  } else {
+                                    localStorage.setItem('geovault_password_hash', btoa(importVaultPassword));
+                                  }
+                                } catch (e) {
+                                  localStorage.setItem('geovault_password_hash', btoa(importVaultPassword));
+                                }
+                                
+                                localStorage.setItem('geovault_wallet_unlocked', 'true');
+                                localStorage.setItem('geovault_publicKey', importVaultDetected.publicKey);
+                                
+                                setStoredSecret(newAccount.secretKey);
+                                setStoredAccounts([newAccount]);
+                                setWalletAccounts([newAccount]);
+                                setWallet(importVaultDetected.keypair!);
+                                
+                                // Reset state
+                                setImportVaultDetected({ detected: false, publicKey: '', keypair: null, walletName: '' });
+                                setImportVaultPassword('');
+                                setShowAddWalletModal(false);
+                                setImportInput('');
+                                setView('main');
+                              } else {
+                                setImportVaultError('Incorrect password');
+                              }
+                            } catch (err: any) {
+                              setImportVaultError(err.message || 'Failed to verify password');
+                            } finally {
+                              setIsVerifyingImportPassword(false);
+                            }
+                          }}
+                          disabled={isVerifyingImportPassword || !importVaultPassword.trim()}
+                          style={{
+                            width: '100%', padding: '16px',
+                            background: (isVerifyingImportPassword || !importVaultPassword.trim()) ? 'rgba(255, 255, 255, 0.1)' : '#a855f7',
+                            border: 'none', borderRadius: 14,
+                            color: '#fff', fontSize: 16, fontWeight: 600,
+                            cursor: (isVerifyingImportPassword || !importVaultPassword.trim()) ? 'not-allowed' : 'pointer',
+                            marginBottom: 12
+                          }}
+                        >
+                          {isVerifyingImportPassword ? 'Verifying...' : 'Import Vault'}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setImportVaultDetected({ detected: false, publicKey: '', keypair: null, walletName: '' });
+                            setImportVaultPassword('');
+                            setImportVaultError('');
+                            localStorage.removeItem('geovault_mnemonic_temp');
+                          }}
+                          style={{
+                            width: '100%', padding: '12px',
+                            background: 'transparent', border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: 12, color: 'rgba(255, 255, 255, 0.5)', fontSize: 13,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ← Back
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
                 {addWalletView === 'import-pk' && (
                   <div>
-                    <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
-                      Enter your Base58 encoded private key.
-                    </p>
-                    <textarea
-                      placeholder="Enter private key..."
-                      value={importInput}
-                      onChange={(e) => setImportInput(e.target.value)}
-                      style={{
-                        width: '100%', height: 100, padding: '14px 16px',
-                        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 12, color: '#fff', fontSize: 14, marginBottom: 12,
-                        outline: 'none', resize: 'none', fontFamily: 'monospace'
-                      }}
-                    />
-                    {status && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{status}</div>}
-                    <button
-                      onClick={async () => {
-                        setIsAddingWallet(true);
-                        setStatus('');
-                        try {
-                          const decoded = bs58.decode(importInput.trim());
-                          const keypair = Keypair.fromSecretKey(decoded);
-                          
-                          const newAccount: WalletAccount = {
-                            index: 0,
-                            name: 'Account 1',
-                            publicKey: keypair.publicKey.toBase58(),
-                            secretKey: bs58.encode(keypair.secretKey)
-                          };
-                          
-                          setStoredSecret(newAccount.secretKey);
-                          setStoredAccounts([newAccount]);
-                          setWalletAccounts([newAccount]);
-                          setWallet(keypair);
-                          
-                          setShowAddWalletModal(false);
-                          setImportInput('');
-                          setView('main');
-                        } catch (err: any) {
-                          setStatus(err.message || 'Invalid private key');
-                        } finally {
-                          setIsAddingWallet(false);
-                        }
-                      }}
-                      disabled={isAddingWallet || !importInput.trim()}
-                      style={{
-                        width: '100%', padding: '16px',
-                        background: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.1)' : '#fff',
-                        border: 'none', borderRadius: 14,
-                        color: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.3)' : '#000',
-                        fontSize: 16, fontWeight: 600,
-                        cursor: (isAddingWallet || !importInput.trim()) ? 'not-allowed' : 'pointer'
-                      }}
-                    >
-                      {isAddingWallet ? 'Importing...' : 'Import Wallet'}
-                    </button>
+                    {!importVaultDetected.detected ? (
+                      <>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 16, lineHeight: 1.5 }}>
+                          Enter your Base58 encoded private key.
+                        </p>
+                        <textarea
+                          placeholder="Enter private key..."
+                          value={importInput}
+                          onChange={(e) => setImportInput(e.target.value)}
+                          style={{
+                            width: '100%', height: 100, padding: '14px 16px',
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 12, color: '#fff', fontSize: 14, marginBottom: 12,
+                            outline: 'none', resize: 'none', fontFamily: 'monospace'
+                          }}
+                        />
+                        {status && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{status}</div>}
+                        <button
+                          onClick={async () => {
+                            setIsAddingWallet(true);
+                            setStatus('');
+                            try {
+                              const decoded = bs58.decode(importInput.trim());
+                              const keypair = Keypair.fromSecretKey(decoded);
+                              const publicKey = keypair.publicKey.toBase58();
+                              
+                              // Check if this wallet has an existing vault
+                              console.log('[Onboarding Import PK] Checking if wallet has vault:', publicKey);
+                              const vaultData = await checkVaultExists(publicKey);
+                              console.log('[Onboarding Import PK] Vault check result:', vaultData);
+                              
+                              if (vaultData && (vaultData.exists || vaultData.multisigPda)) {
+                                // Vault detected - show password input
+                                console.log('[Onboarding Import PK] Vault detected, showing password input');
+                                setImportVaultDetected({
+                                  detected: true,
+                                  publicKey,
+                                  keypair,
+                                  walletName: 'Account 1'
+                                });
+                                setIsAddingWallet(false);
+                                return;
+                              }
+                              
+                              // No vault - import directly
+                              console.log('[Onboarding Import PK] No vault found, importing directly');
+                              const newAccount: WalletAccount = {
+                                index: 0,
+                                name: 'Account 1',
+                                publicKey,
+                                secretKey: bs58.encode(keypair.secretKey)
+                              };
+                              
+                              setStoredSecret(newAccount.secretKey);
+                              setStoredAccounts([newAccount]);
+                              setWalletAccounts([newAccount]);
+                              setWallet(keypair);
+                              
+                              setShowAddWalletModal(false);
+                              setImportInput('');
+                              setView('main');
+                            } catch (err: any) {
+                              setStatus(err.message || 'Invalid private key');
+                            } finally {
+                              setIsAddingWallet(false);
+                            }
+                          }}
+                          disabled={isAddingWallet || !importInput.trim()}
+                          style={{
+                            width: '100%', padding: '16px',
+                            background: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.1)' : '#fff',
+                            border: 'none', borderRadius: 14,
+                            color: (isAddingWallet || !importInput.trim()) ? 'rgba(255, 255, 255, 0.3)' : '#000',
+                            fontSize: 16, fontWeight: 600,
+                            cursor: (isAddingWallet || !importInput.trim()) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isAddingWallet ? 'Importing...' : 'Import Wallet'}
+                        </button>
+                      </>
+                    ) : (
+                      /* Vault Password Required UI for Private Key Import in Onboarding */
+                      <>
+                        <div style={{ 
+                          background: 'rgba(168, 85, 247, 0.1)', 
+                          border: '1px solid rgba(168, 85, 247, 0.3)',
+                          borderRadius: 12, 
+                          padding: 16, 
+                          marginBottom: 16 
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
+                              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                            </svg>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: '#a855f7' }}>Vault Detected</span>
+                          </div>
+                          <p style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.6)', margin: 0 }}>
+                            This wallet has an existing ARGUS Vault. Enter your vault password to continue.
+                          </p>
+                        </div>
+                        
+                        <input
+                          type="password"
+                          value={importVaultPassword}
+                          onChange={(e) => setImportVaultPassword(e.target.value)}
+                          placeholder="Enter vault password"
+                          style={{
+                            width: '100%', padding: '14px 16px',
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: 12, color: '#fff', fontSize: 14, marginBottom: 12,
+                            outline: 'none', boxSizing: 'border-box'
+                          }}
+                        />
+                        
+                        {importVaultError && (
+                          <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{importVaultError}</div>
+                        )}
+                        
+                        <button
+                          onClick={async () => {
+                            if (!importVaultDetected.keypair || !importVaultPassword.trim()) return;
+                            setIsVerifyingImportPassword(true);
+                            setImportVaultError('');
+                            
+                            try {
+                              const verifyResult = await verifyServerPassword(importVaultDetected.publicKey, importVaultPassword);
+                              
+                              if (verifyResult.success) {
+                                // Password correct - complete import
+                                const newAccount: WalletAccount = {
+                                  index: 0,
+                                  name: importVaultDetected.walletName,
+                                  publicKey: importVaultDetected.publicKey,
+                                  secretKey: bs58.encode(importVaultDetected.keypair!.secretKey)
+                                };
+                                
+                                // Store the password hash for unlock screen
+                                try {
+                                  if (crypto.subtle) {
+                                    const encoder = new TextEncoder();
+                                    const data = encoder.encode(importVaultPassword);
+                                    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                                    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                                    localStorage.setItem('geovault_password_hash', passwordHash);
+                                  } else {
+                                    localStorage.setItem('geovault_password_hash', btoa(importVaultPassword));
+                                  }
+                                } catch (e) {
+                                  localStorage.setItem('geovault_password_hash', btoa(importVaultPassword));
+                                }
+                                
+                                localStorage.setItem('geovault_wallet_unlocked', 'true');
+                                localStorage.setItem('geovault_publicKey', importVaultDetected.publicKey);
+                                
+                                setStoredSecret(newAccount.secretKey);
+                                setStoredAccounts([newAccount]);
+                                setWalletAccounts([newAccount]);
+                                setWallet(importVaultDetected.keypair!);
+                                
+                                // Reset state
+                                setImportVaultDetected({ detected: false, publicKey: '', keypair: null, walletName: '' });
+                                setImportVaultPassword('');
+                                setShowAddWalletModal(false);
+                                setImportInput('');
+                                setView('main');
+                              } else {
+                                setImportVaultError('Incorrect password');
+                              }
+                            } catch (err: any) {
+                              setImportVaultError(err.message || 'Failed to verify password');
+                            } finally {
+                              setIsVerifyingImportPassword(false);
+                            }
+                          }}
+                          disabled={isVerifyingImportPassword || !importVaultPassword.trim()}
+                          style={{
+                            width: '100%', padding: '16px',
+                            background: (isVerifyingImportPassword || !importVaultPassword.trim()) ? 'rgba(255, 255, 255, 0.1)' : '#a855f7',
+                            border: 'none', borderRadius: 14,
+                            color: '#fff', fontSize: 16, fontWeight: 600,
+                            cursor: (isVerifyingImportPassword || !importVaultPassword.trim()) ? 'not-allowed' : 'pointer',
+                            marginBottom: 12
+                          }}
+                        >
+                          {isVerifyingImportPassword ? 'Verifying...' : 'Import Vault'}
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setImportVaultDetected({ detected: false, publicKey: '', keypair: null, walletName: '' });
+                            setImportVaultPassword('');
+                            setImportVaultError('');
+                          }}
+                          style={{
+                            width: '100%', padding: '12px',
+                            background: 'transparent', border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: 12, color: 'rgba(255, 255, 255, 0.5)', fontSize: 13,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ← Back
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -10410,22 +10718,27 @@ function IndexPopup() {
             setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
             
             if (result.success && result.fingerprint) {
-              // Save the voice fingerprint to server
-              const saveResult = await chrome.runtime.sendMessage({
-                type: 'SAVE_VOICE_FINGERPRINT',
-                fingerprint: result.fingerprint,
-                publicKey: voiceEnrollmentModal.walletAddress
-              })
-              
-              if (saveResult && saveResult.success) {
-                setUpdatingSecurityLayer('voice')
-                await updateSecurityLayer(voiceEnrollmentModal.walletAddress, 'voice', true)
-                setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: true, voiceEnrolled: true } : null)
-                setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'enabled', deviceType: 'voice' })
-                setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
-                setUpdatingSecurityLayer(null)
-              } else {
-                setStatus('Failed to save voice fingerprint')
+              try {
+                // Save the voice fingerprint to server using the API directly (not chrome.runtime)
+                console.log('[Voice Enroll] Saving fingerprint to server for:', voiceEnrollmentModal.walletAddress);
+                const saveResult = await enrollVoiceFingerprint(voiceEnrollmentModal.walletAddress, result.fingerprint);
+                console.log('[Voice Enroll] Save result:', saveResult);
+                
+                if (saveResult && saveResult.success) {
+                  setUpdatingSecurityLayer('voice')
+                  await updateSecurityLayer(voiceEnrollmentModal.walletAddress, 'voice', true)
+                  setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: true, voiceEnrolled: true } : null)
+                  setVoiceUnlockEnabled(true)
+                  setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'enabled', deviceType: 'voice' })
+                  setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                  setUpdatingSecurityLayer(null)
+                } else {
+                  setStatus('Failed to save voice fingerprint')
+                  setTimeout(() => setStatus(''), 3000)
+                }
+              } catch (err: any) {
+                console.error('[Voice Enroll] Error saving fingerprint:', err);
+                setStatus(err.message || 'Failed to save voice fingerprint')
                 setTimeout(() => setStatus(''), 3000)
               }
             } else if (result.error) {
@@ -21387,31 +21700,50 @@ function IndexPopup() {
             </div>
             </div>
 
-            {/* ARGUS Token - Always visible */}
-            <div style={styles.tokenItem}>
-              <div style={styles.tokenIcon}>
-                <img 
-                  src={chrome.runtime.getURL("assets/arguslogo.png")}
-                  alt="ARGS" 
-                  style={{width: '100%', height: '100%', borderRadius: 12}} 
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                    e.currentTarget.parentElement!.innerHTML = '<div style="width:100%;height:100%;border-radius:12px;background:linear-gradient(135deg, #10b981 0%, #059669 100%);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:12px">ARGS</div>';
+            {/* ARGUS Token - Always visible, shows real balance if held */}
+            {(() => {
+              const argusToken = tokens.find(t => t.mint === ARGUS_TOKEN.mint);
+              const argusBalance = argusToken?.amount || 0;
+              const argusValue = argusToken?.usdValue || 0;
+              
+              return (
+                <div 
+                  style={{
+                    ...styles.tokenItem,
+                    cursor: argusToken ? 'pointer' : 'default'
                   }}
-                />
-              </div>
-              <div style={styles.tokenInfo}>
-                <div style={styles.tokenName}>ARGUS</div>
-                <div style={styles.tokenAmount}>0.00 ARGS</div>
-              </div>
-              <div style={styles.tokenValue}>
-                <div style={styles.tokenValueText}>{formatCurrency(0)}</div>
-                <div style={styles.tokenChange}>+0.00%</div>
-              </div>
-            </div>
+                  onClick={() => {
+                    if (argusToken) {
+                      setSelectedToken(argusToken);
+                      setView("token-detail");
+                    }
+                  }}
+                >
+                  <div style={styles.tokenIcon}>
+                    <img 
+                      src="/assets/arguslogo.png"
+                      alt="ARGUS" 
+                      style={{width: '100%', height: '100%', borderRadius: 12}} 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        e.currentTarget.parentElement!.innerHTML = '<div style="width:100%;height:100%;border-radius:12px;background:linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:10px">ARGUS</div>';
+                      }}
+                    />
+                  </div>
+                  <div style={styles.tokenInfo}>
+                    <div style={styles.tokenName}>ARGUS</div>
+                    <div style={styles.tokenAmount}>{argusBalance > 0 ? argusBalance.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '0.00'} ARGUS</div>
+                  </div>
+                  <div style={styles.tokenValue}>
+                    <div style={styles.tokenValueText}>{formatCurrency(argusValue)}</div>
+                    <div style={styles.tokenChange}>+0.00%</div>
+                  </div>
+                </div>
+              );
+            })()}
             
-            {/* SPL Tokens */}
-            {tokens.map((token) => (
+            {/* SPL Tokens (excluding ARGUS since it's shown above) */}
+            {tokens.filter(t => t.mint !== ARGUS_TOKEN.mint).map((token) => (
                 <div key={token.mint} style={{
                     ...styles.tokenItem,
                     position: 'relative' as const,

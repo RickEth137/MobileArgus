@@ -4,24 +4,6 @@ import { checkVoiceEnabled, getVoiceFingerprint } from '../utils/api';
 import { verifyVoice } from '../utils/voice-auth';
 import './UnlockScreen.css';
 
-// Simple storage wrapper for web
-const storage = {
-  get: async <T,>(key: string): Promise<T | undefined> => {
-    const value = localStorage.getItem(`geovault_${key}`);
-    if (value) {
-      try {
-        return JSON.parse(value) as T;
-      } catch {
-        return value as unknown as T;
-      }
-    }
-    return undefined;
-  },
-  set: async (key: string, value: any): Promise<void> => {
-    localStorage.setItem(`geovault_${key}`, JSON.stringify(value));
-  }
-};
-
 export default function UnlockScreen({ onUnlock }: { onUnlock: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -34,9 +16,9 @@ export default function UnlockScreen({ onUnlock }: { onUnlock: () => void }) {
   useEffect(() => {
     const checkVoice = async () => {
       try {
-        // Get wallet address using Plasmo storage (same as background.ts)
-        const addr = await storage.get<string>("publicKey");
-        console.log('[UnlockScreen] PublicKey from Plasmo storage:', addr);
+        // Get wallet address from localStorage (matches how App.tsx saves it)
+        const addr = localStorage.getItem("geovault_publicKey");
+        console.log('[UnlockScreen] PublicKey from localStorage:', addr);
         
         if (addr) {
           setWalletAddress(addr);
@@ -61,29 +43,51 @@ export default function UnlockScreen({ onUnlock }: { onUnlock: () => void }) {
 
     try {
       // Web version: verify password locally
-      const storedHash = await storage.get<string>('password_hash');
+      // Read directly from localStorage to match how App.tsx saves it
+      const storedHash = localStorage.getItem('geovault_password_hash');
+      console.log('[UnlockScreen] Stored hash exists:', !!storedHash);
+      
+      if (!storedHash) {
+        setError('No password set. Please restore wallet.');
+        setLoading(false);
+        return;
+      }
+      
       const inputHash = await hashPassword(password);
+      console.log('[UnlockScreen] Hash comparison:', { storedLen: storedHash.length, inputLen: inputHash.length });
       
       if (storedHash === inputHash) {
-        await storage.set('wallet_unlocked', true);
+        localStorage.setItem('geovault_wallet_unlocked', 'true');
         onUnlock();
       } else {
         setError('Invalid password');
       }
     } catch (err) {
+      console.error('[UnlockScreen] Unlock error:', err);
       setError('Failed to unlock wallet');
     } finally {
       setLoading(false);
     }
   };
 
-  // Simple password hash for web
+  // Password hash with fallback - MUST match App.tsx logic exactly
   const hashPassword = async (pwd: string): Promise<string> => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(pwd);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+      if (crypto.subtle) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(pwd);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      } else {
+        // Fallback: simple hash for HTTP context (matches App.tsx fallback)
+        console.warn('[UnlockScreen] crypto.subtle not available, using simple hash');
+        return btoa(pwd);
+      }
+    } catch (hashErr) {
+      console.error('[UnlockScreen] Hash error, using fallback:', hashErr);
+      return btoa(pwd);
+    }
   };
 
   const handleVoiceUnlock = async () => {
@@ -111,7 +115,7 @@ export default function UnlockScreen({ onUnlock }: { onUnlock: () => void }) {
       
       if (result.success) {
         // Web version: unlock directly on voice verification success
-        await storage.set('wallet_unlocked', true);
+        localStorage.setItem('geovault_wallet_unlocked', 'true');
         onUnlock();
       } else {
         setError(result.error || 'Voice not recognized');

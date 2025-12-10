@@ -945,7 +945,7 @@ function IndexPopup() {
   // Voice Enrollment Modal state
   const [voiceEnrollmentModal, setVoiceEnrollmentModal] = useState<{
     show: boolean
-    mode: 'enroll' | 'verify' | 'verify-to-disable'
+    mode: 'enroll' | 'verify' | 'verify-to-disable' | 'verify-for-tx'
     walletAddress: string
     enrolledFingerprint?: string
   }>({
@@ -1001,6 +1001,8 @@ function IndexPopup() {
   
   // Refs for user-gesture-triggered verifications
   const pendingVerificationResolve = useRef<((result: boolean) => void) | null>(null)
+  // Ref for voice verification callback during transaction security verification
+  const pendingVoiceVerificationResolve = useRef<((result: { success: boolean; confidence?: number }) => void) | null>(null)
   // Simple Transaction Confirmation Modal (for master wallet - no security layers)
   const [simpleTxModal, setSimpleTxModal] = useState<{
     show: boolean;
@@ -3233,12 +3235,26 @@ function IndexPopup() {
               
               // Check if user has enrolled voice - fingerprint field exists
               if (fpResult.fingerprint) {
-                console.log('[Voice] Fingerprint found, opening verification popup...')
-                const verifyResult = await verifyVoice(fpResult.fingerprint)
-                console.log('[Voice] Verify result:', verifyResult.success, 'confidence:', verifyResult.confidence)
-                verified = verifyResult.success && (verifyResult.confidence || 0) >= 0.75
+                console.log('[Voice] Fingerprint found, opening voice verification modal...')
+                
+                // Open the VoiceEnrollmentModal in verify-for-tx mode and wait for result
+                const verifyResult = await new Promise<{ success: boolean; confidence?: number }>((resolve) => {
+                  // Store the resolve function so the modal's onComplete can call it
+                  pendingVoiceVerificationResolve.current = resolve
+                  
+                  // Open the voice verification modal
+                  setVoiceEnrollmentModal({
+                    show: true,
+                    mode: 'verify-for-tx',
+                    walletAddress: wallet.publicKey.toBase58(),
+                    enrolledFingerprint: fpResult.fingerprint
+                  })
+                })
+                
+                console.log('[Voice] Verify result:', verifyResult.success)
+                verified = verifyResult.success
                 if (!verified) {
-                  console.log('[Voice] Verification failed - confidence too low or cancelled')
+                  console.log('[Voice] Verification failed or cancelled')
                 }
               } else {
                 console.log('[Voice] No fingerprint enrolled, skipping voice verification')
@@ -10652,6 +10668,15 @@ function IndexPopup() {
           onComplete={async (result) => {
             setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
             
+            // Handle verify-for-tx mode - resolve the pending promise for transaction security verification
+            if (voiceEnrollmentModal.mode === 'verify-for-tx') {
+              if (pendingVoiceVerificationResolve.current) {
+                pendingVoiceVerificationResolve.current({ success: result.success })
+                pendingVoiceVerificationResolve.current = null
+              }
+              return
+            }
+            
             // Handle verify-to-disable mode - if voice verified, disable the layer
             if (voiceEnrollmentModal.mode === 'verify-to-disable') {
               if (result.success) {
@@ -10705,7 +10730,14 @@ function IndexPopup() {
               setTimeout(() => setStatus(''), 3000)
             }
           }}
-          onClose={() => setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))}
+          onClose={() => {
+            setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
+            // If we're in verify-for-tx mode and user closes, resolve with failure
+            if (voiceEnrollmentModal.mode === 'verify-for-tx' && pendingVoiceVerificationResolve.current) {
+              pendingVoiceVerificationResolve.current({ success: false })
+              pendingVoiceVerificationResolve.current = null
+            }
+          }}
         />
 
         {/* 2FA Mobile QR Modal */}

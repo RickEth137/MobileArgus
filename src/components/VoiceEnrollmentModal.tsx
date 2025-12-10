@@ -10,7 +10,7 @@ const API_BASE = 'https://api.assemblyai.com/v2';
 
 interface VoiceEnrollmentModalProps {
   show: boolean;
-  mode: 'enroll' | 'verify' | 'verify-to-disable';
+  mode: 'enroll' | 'verify' | 'verify-to-disable' | 'verify-for-tx';
   walletAddress: string;
   enrolledFingerprint?: string;
   onComplete: (result: { success: boolean; fingerprint?: string; error?: string }) => void;
@@ -83,11 +83,11 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   
-  const totalSamples = (mode === 'verify' || mode === 'verify-to-disable') ? 1 : 3;
+  const totalSamples = (mode === 'verify' || mode === 'verify-to-disable' || mode === 'verify-for-tx') ? 1 : 3;
   
   // Parse enrolled passphrase for verification
   const enrolledPassphrase = React.useMemo(() => {
-    if ((mode === 'verify' || mode === 'verify-to-disable') && enrolledFingerprint) {
+    if ((mode === 'verify' || mode === 'verify-to-disable' || mode === 'verify-for-tx') && enrolledFingerprint) {
       try {
         const decoded = decodeURIComponent(enrolledFingerprint);
         const data = JSON.parse(atob(decoded));
@@ -105,10 +105,18 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
     if (show) {
       setCurrentSample(0);
       setIsRecording(false);
-      const isVerifyMode = mode === 'verify' || mode === 'verify-to-disable';
-      setStatus(isVerifyMode 
-        ? (mode === 'verify-to-disable' ? 'Tap to verify voice to disable' : 'Tap to unlock with your voice') 
-        : 'Tap to record your voice');
+      const isVerifyMode = mode === 'verify' || mode === 'verify-to-disable' || mode === 'verify-for-tx';
+      let statusText = 'Tap to record your voice';
+      if (isVerifyMode) {
+        if (mode === 'verify-to-disable') {
+          statusText = 'Tap to verify voice to disable';
+        } else if (mode === 'verify-for-tx') {
+          statusText = 'Say your passphrase to verify';
+        } else {
+          statusText = 'Tap to unlock with your voice';
+        }
+      }
+      setStatus(statusText);
       setStatusType('');
       setWaveBars(Array(24).fill(6));
       storedPassphraseRef.current = '';
@@ -338,7 +346,7 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
   }, [isRecording, enrolledPassphrase, recordAudio, onComplete]);
 
   const handleRecordClick = useCallback(() => {
-    if (mode === 'verify' || mode === 'verify-to-disable') {
+    if (mode === 'verify' || mode === 'verify-to-disable' || mode === 'verify-for-tx') {
       processVerification();
     } else {
       processEnrollment();

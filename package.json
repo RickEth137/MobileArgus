@@ -1,0 +1,43 @@
+{
+  "name": "geo-vault-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.87.6",
+    "@sqds/multisig": "^2.1.4",
+    "assert": "^2.1.0",
+    "bip39": "^3.1.0",
+    "bs58": "^5.0.0",
+    "buffer": "^6.0.3",
+    "cobe": "^0.6.5",
+    "crypto-browserify": "^3.12.1",
+    "html2canvas": "^1.4.1",
+    "https-browserify": "^1.0.0",
+    "motion": "^12.23.25",
+    "os-browserify": "^0.3.0",
+    "process": "^0.11.10",
+    "qrcode.react": "^3.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "stream-browserify": "^3.0.0",
+    "stream-http": "^3.2.0",
+    "url": "^0.11.4",
+    "vite-plugin-node-polyfills": "^0.24.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.32",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0"
+  }
+}

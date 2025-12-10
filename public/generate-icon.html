@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate ARGUS Icon</title>
+  <style>
+    body {
+      background: #1a1a1a;
+      color: white;
+      font-family: -apple-system, sans-serif;
+      padding: 40px;
+      text-align: center;
+    }
+    canvas {
+      border: 1px solid #333;
+      border-radius: 24px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 12px 24px;
+      background: #fff;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .instructions {
+      margin-top: 20px;
+      color: #888;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ARGUS App Icon Generator</h1>
+  <p>This will create a 180x180 icon with black background</p>
+  
+  <canvas id="iconCanvas" width="180" height="180"></canvas>
+  
+  <br>
+  <button onclick="downloadIcon()">Download Icon</button>
+  
+  <div class="instructions">
+    <p>1. Click "Download Icon" to save apple-touch-icon.png</p>
+    <p>2. Copy it to: geo-vault-mobile/public/assets/apple-touch-icon.png</p>
+    <p>3. Delete and re-add the Home Screen shortcut on your iPhone</p>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('iconCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Draw black background with rounded corners
+    ctx.fillStyle = '#121216';
+    ctx.fillRect(0, 0, 180, 180);
+    
+    // Load and draw the logo
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      // Draw the logo centered with padding
+      const padding = 20;
+      const size = 180 - (padding * 2);
+      ctx.drawImage(img, padding, padding, size, size);
+    };
+    img.src = '/assets/arguslogo.png';
+    
+    function downloadIcon() {
+      const link = document.createElement('a');
+      link.download = 'apple-touch-icon.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+</body>
+</html>

@@ -19,6 +19,7 @@ import { subscribeToAccountChanges, unsubscribeFromAccountChanges, subscribeToLo
 import { t, LANGUAGE_FROM_NAME, type Language } from "./utils/i18n"
 import { FEATURES, getComingSoonMessage } from "./utils/feature-flags"
 import { ComingSoonWrapper, ComingSoonBadge } from "./components/ComingSoon"
+import { VoiceEnrollmentModal } from "./components/VoiceEnrollmentModal"
 import { 
   startVoiceEnrollment,
   enrollVoiceSample, 
@@ -922,6 +923,18 @@ function IndexPopup() {
     status: 'pending',
     publicKey: null,
     onVerified: undefined
+  })
+  
+  // Voice Enrollment Modal state
+  const [voiceEnrollmentModal, setVoiceEnrollmentModal] = useState<{
+    show: boolean
+    mode: 'enroll' | 'verify'
+    walletAddress: string
+    enrolledFingerprint?: string
+  }>({
+    show: false,
+    mode: 'enroll',
+    walletAddress: ''
   })
   
   // Geo-fence recalibration state
@@ -10387,6 +10400,42 @@ function IndexPopup() {
           </>
         )}
 
+        {/* Voice Enrollment Modal */}
+        <VoiceEnrollmentModal
+          show={voiceEnrollmentModal.show}
+          mode={voiceEnrollmentModal.mode}
+          walletAddress={voiceEnrollmentModal.walletAddress}
+          enrolledFingerprint={voiceEnrollmentModal.enrolledFingerprint}
+          onComplete={async (result) => {
+            setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
+            
+            if (result.success && result.fingerprint) {
+              // Save the voice fingerprint to server
+              const saveResult = await chrome.runtime.sendMessage({
+                type: 'SAVE_VOICE_FINGERPRINT',
+                fingerprint: result.fingerprint,
+                publicKey: voiceEnrollmentModal.walletAddress
+              })
+              
+              if (saveResult && saveResult.success) {
+                setUpdatingSecurityLayer('voice')
+                await updateSecurityLayer(voiceEnrollmentModal.walletAddress, 'voice', true)
+                setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: true, voiceEnrolled: true } : null)
+                setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'enabled', deviceType: 'voice' })
+                setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                setUpdatingSecurityLayer(null)
+              } else {
+                setStatus('Failed to save voice fingerprint')
+                setTimeout(() => setStatus(''), 3000)
+              }
+            } else if (result.error) {
+              setStatus(result.error)
+              setTimeout(() => setStatus(''), 3000)
+            }
+          }}
+          onClose={() => setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))}
+        />
+
         {/* 2FA Mobile QR Modal */}
         {mobileQRModal.show && (
           <>
@@ -11695,35 +11744,15 @@ function IndexPopup() {
                             return
                           }
                           
-                          // Close modal and start voice enrollment
+                          // Close modal and show voice enrollment modal
                           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                           
-                          // Open voice enrollment for this wallet
-                          const enrollResult = await startVoiceEnrollment(editingWallet?.publicKey || '')
-                          
-                          if (enrollResult.success && enrollResult.fingerprint) {
-                            // Save the voice fingerprint to server for this wallet
-                            const saveResult = await chrome.runtime.sendMessage({
-                              type: 'SAVE_VOICE_FINGERPRINT',
-                              fingerprint: enrollResult.fingerprint,
-                              publicKey: editingWallet?.publicKey
-                            })
-                            
-                            if (saveResult && saveResult.success) {
-                              // Now enable voice layer
-                              setUpdatingSecurityLayer('voice')
-                              await updateSecurityLayer(editingWallet?.publicKey || '', 'voice', true)
-                              setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: true, voiceEnrolled: true } : null)
-                              setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'enabled', deviceType: 'voice' })
-                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
-                            } else {
-                              setStatus('Failed to save voice fingerprint')
-                              setTimeout(() => setStatus(''), 3000)
-                            }
-                          } else if (enrollResult.error) {
-                            setStatus(enrollResult.error)
-                            setTimeout(() => setStatus(''), 3000)
-                          }
+                          // Open voice enrollment modal for this wallet
+                          setVoiceEnrollmentModal({
+                            show: true,
+                            mode: 'enroll',
+                            walletAddress: editingWallet?.publicKey || ''
+                          })
                         } catch (error: any) {
                           setConfirmPasswordError(error.message || "Failed to set up voice")
                         } finally {
@@ -11827,30 +11856,12 @@ function IndexPopup() {
                           
                           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                           
-                          // Open voice enrollment - will overwrite any existing fingerprint
-                          const enrollResult = await startVoiceEnrollment(editingWallet?.publicKey || '')
-                          
-                          if (enrollResult.success && enrollResult.fingerprint) {
-                            const saveResult = await chrome.runtime.sendMessage({
-                              type: 'SAVE_VOICE_FINGERPRINT',
-                              fingerprint: enrollResult.fingerprint,
-                              publicKey: editingWallet?.publicKey
-                            })
-                            
-                            if (saveResult && saveResult.success) {
-                              setUpdatingSecurityLayer('voice')
-                              await updateSecurityLayer(editingWallet?.publicKey || '', 'voice', true)
-                              setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: true, voiceEnrolled: true } : null)
-                              setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'enabled', deviceType: 'voice' })
-                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
-                            } else {
-                              setStatus('Failed to save voice fingerprint')
-                              setTimeout(() => setStatus(''), 3000)
-                            }
-                          } else if (enrollResult.error) {
-                            setStatus(enrollResult.error)
-                            setTimeout(() => setStatus(''), 3000)
-                          }
+                          // Open voice enrollment modal - will overwrite any existing fingerprint
+                          setVoiceEnrollmentModal({
+                            show: true,
+                            mode: 'enroll',
+                            walletAddress: editingWallet?.publicKey || ''
+                          })
                         } catch (error: any) {
                           setConfirmPasswordError(error.message || "Failed to set up voice")
                         } finally {

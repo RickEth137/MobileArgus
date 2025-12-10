@@ -2060,6 +2060,15 @@ function IndexPopup() {
       setWalletAccounts(updatedAccounts)
       setStoredAccounts(updatedAccounts)
       
+      // Register the new wallet on the server
+      try {
+        await registerUser(publicKey)
+        console.log('[PWA] New wallet registered on server:', publicKey)
+      } catch (regErr) {
+        console.error('[PWA] Failed to register new wallet on server:', regErr)
+        // Continue anyway - local wallet is created
+      }
+      
       // Switch to the new account
       switchToAccount(nextIndex, newAccount)
       closeAddWalletModal()
@@ -4376,6 +4385,19 @@ function IndexPopup() {
           setWalletAccounts([newAccount]);
           setWallet(keypair);
           setMnemonic(onboardingGeneratedMnemonic);
+          
+          // Register user and set password on server
+          console.log('[Onboarding] Registering user and password on server...');
+          try {
+            await registerUser(keypair.publicKey.toBase58());
+            if (onboardingPassword) {
+              await setServerPassword(keypair.publicKey.toBase58(), onboardingPassword);
+            }
+            console.log('[Onboarding] Server registration complete!');
+          } catch (serverErr) {
+            console.error('[Onboarding] Server registration failed:', serverErr);
+            // Continue anyway - local wallet is created, server registration can be retried
+          }
           
           console.log('[Onboarding] Wallet creation complete!');
           
@@ -11408,8 +11430,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -11518,8 +11540,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (response.success) {
                             setUpdatingSecurityLayer('bluetooth')
                             const deviceName = securitySettings?.bluetoothDevice?.name || 'Bluetooth Device'
@@ -11637,8 +11659,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (response.success) {
                             setUpdatingSecurityLayer('usb')
                             // Get device name before disabling
@@ -11756,8 +11778,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (response.success) {
                             setUpdatingSecurityLayer('biometric')
                             // Also remove local biometric credential
@@ -11810,8 +11832,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -11963,8 +11985,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -12013,8 +12035,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (response.success) {
                             setUpdatingSecurityLayer('voice')
                             await updateSecurityLayer(editingWallet.publicKey, 'voice', false)
@@ -12067,8 +12089,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -12212,8 +12234,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (response.success) {
                             setShowEditPrivateKey(true)
                             setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
@@ -12365,8 +12387,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
-                          const response = await pwaStorage.verifyLocalPassword(password)
+                          // PWA: Verify password against server API with wallet's public key
+                          const response = await verifyServerPassword(editingWallet.publicKey, password)
                           if (response.success) {
                             // PWA: Get the seed phrase from localStorage
                             const storedMnemonic = getMnemonic()

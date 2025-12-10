@@ -122,7 +122,7 @@ export async function enrollBiometric(walletAddress: string): Promise<{
     // Create credential options for platform authenticator (Face ID / Touch ID)
     const createCredentialOptions: CredentialCreationOptions = {
       publicKey: {
-        challenge,
+        challenge: challenge.buffer as ArrayBuffer,
         rp: {
           name: 'GeoVault',
           id: window.location.hostname,
@@ -201,7 +201,7 @@ export async function verifyBiometric(walletAddress: string): Promise<{
     // Get credential options for authentication
     const getCredentialOptions: CredentialRequestOptions = {
       publicKey: {
-        challenge,
+        challenge: challenge.buffer as ArrayBuffer,
         rpId: window.location.hostname,
         allowCredentials: [{
           type: 'public-key',

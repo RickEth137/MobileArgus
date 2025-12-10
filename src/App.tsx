@@ -7030,11 +7030,32 @@ function IndexPopup() {
                             if (currentPassword.length >= 6) {
                               setVerifyingCurrentPassword(true)
                               try {
-                                const response = await chrome.runtime.sendMessage({
-                                  type: "VERIFY_PASSWORD",
-                                  password: currentPassword
-                                })
-                                if (response.success) {
+                                // Verify password locally - same logic as UnlockScreen
+                                const storedHash = localStorage.getItem('geovault_password_hash');
+                                if (!storedHash) {
+                                  setCurrentPasswordShake(true)
+                                  setCurrentPassword("")
+                                  setTimeout(() => setCurrentPasswordShake(false), 500)
+                                  return
+                                }
+                                
+                                // Hash the input password
+                                let inputHash: string;
+                                try {
+                                  if (crypto.subtle) {
+                                    const encoder = new TextEncoder();
+                                    const data = encoder.encode(currentPassword);
+                                    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                                    inputHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                                  } else {
+                                    inputHash = btoa(currentPassword);
+                                  }
+                                } catch {
+                                  inputHash = btoa(currentPassword);
+                                }
+                                
+                                if (storedHash === inputHash) {
                                   setCurrentPasswordVerified(true)
                                 } else {
                                   setCurrentPasswordShake(true)
@@ -7366,13 +7387,35 @@ function IndexPopup() {
                                 return
                               }
                               try {
-                                console.log('[Voice Setup] Verifying password...')
-                                const result = await chrome.runtime.sendMessage({ type: 'VERIFY_PASSWORD', password })
-                                console.log('[Voice Setup] Password verify result:', result)
-                                if (!result || !result.success) {
+                                console.log('[Voice Setup] Verifying password locally...')
+                                // Verify password locally - same logic as UnlockScreen
+                                const storedHash = localStorage.getItem('geovault_password_hash');
+                                if (!storedHash) {
+                                  setConfirmPasswordError('No password set')
+                                  return
+                                }
+                                
+                                // Hash the input password
+                                let inputHash: string;
+                                try {
+                                  if (crypto.subtle) {
+                                    const encoder = new TextEncoder();
+                                    const data = encoder.encode(password);
+                                    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                                    inputHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                                  } else {
+                                    inputHash = btoa(password);
+                                  }
+                                } catch {
+                                  inputHash = btoa(password);
+                                }
+                                
+                                if (storedHash !== inputHash) {
                                   setConfirmPasswordError('Incorrect password')
                                   return
                                 }
+                                
                                 console.log('[Voice Setup] Password verified, opening voice recording window...')
                                 setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                                 
@@ -7380,21 +7423,16 @@ function IndexPopup() {
                                 const enrollResult = await startVoiceEnrollment(genesisPublicKey)
                                 
                                 if (enrollResult.success && enrollResult.fingerprint) {
-                                  // Save the voice fingerprint to server
+                                  // Save the voice fingerprint to server using API
                                   console.log('[Voice Setup] Saving fingerprint to server...')
-                                  const saveResult = await chrome.runtime.sendMessage({
-                                    type: 'SAVE_VOICE_FINGERPRINT',
-                                    fingerprint: enrollResult.fingerprint,
-                                    publicKey: genesisPublicKey
-                                  })
-                                  console.log('[Voice Setup] Save result:', saveResult)
-                                  
-                                  if (saveResult && saveResult.success) {
+                                  try {
+                                    await enrollVoiceFingerprint(genesisPublicKey, enrollResult.fingerprint)
                                     setVoiceUnlockEnabled(true)
                                     console.log('[Voice Setup] Voice enrollment complete!')
-                                  } else {
-                                    console.error('[Voice Setup] Failed to save fingerprint:', saveResult?.error)
-                                    alert('Failed to save voice fingerprint: ' + (saveResult?.error || 'Unknown error'))
+                                    setStatus('Voice unlock enabled!')
+                                  } catch (saveErr: any) {
+                                    console.error('[Voice Setup] Failed to save fingerprint:', saveErr)
+                                    alert('Failed to save voice fingerprint: ' + (saveErr.message || 'Unknown error'))
                                   }
                                 } else {
                                   console.error('[Voice Setup] Enrollment failed:', enrollResult.error)
@@ -21705,7 +21743,7 @@ function IndexPopup() {
             {(() => {
               const argusToken = tokens.find(t => t.mint === ARGUS_TOKEN.mint);
               const argusBalance = argusToken?.amount || 0;
-              const argusValue = argusToken?.usdValue || 0;
+              const argusValue = argusToken?.value || 0;
               
               return (
                 <div 
@@ -21737,7 +21775,12 @@ function IndexPopup() {
                   </div>
                   <div style={styles.tokenValue}>
                     <div style={styles.tokenValueText}>{formatCurrency(argusValue)}</div>
-                    <div style={styles.tokenChange}>+0.00%</div>
+                    <div style={{
+                      ...styles.tokenChange,
+                      color: (argusToken?.change24h || 0) >= 0 ? '#22c55e' : '#ef4444'
+                    }}>
+                      {(argusToken?.change24h || 0) >= 0 ? '+' : ''}{(argusToken?.change24h || 0).toFixed(2)}%
+                    </div>
                   </div>
                 </div>
               );

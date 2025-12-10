@@ -197,17 +197,19 @@ const fetchTokenMetadata = async (mints: string[]): Promise<Map<string, JupiterT
     return metadataMap;
 };
 
-// Fetch banners and socials from DexScreener API
+// Fetch banners, socials, and prices from DexScreener API
 interface DexScreenerData {
     banner?: string;
     socials?: TokenSocials;
+    price?: number;
+    priceChange24h?: number;
 }
 
 const fetchDexScreenerData = async (mints: string[]): Promise<Map<string, DexScreenerData>> => {
     const dataMap = new Map<string, DexScreenerData>();
     
     try {
-        // DexScreener API - fetch token profiles for banners and socials
+        // DexScreener API - fetch token profiles for banners, socials, and prices
         // Limit to first 10 tokens to avoid too many requests
         const mintsToFetch = mints.slice(0, 10);
         
@@ -220,6 +222,16 @@ const fetchDexScreenerData = async (mints: string[]): Promise<Map<string, DexScr
                     if (data.pairs && data.pairs.length > 0) {
                         const pair = data.pairs[0];
                         const tokenData: DexScreenerData = {};
+                        
+                        // Get price from DexScreener
+                        if (pair.priceUsd) {
+                            tokenData.price = parseFloat(pair.priceUsd);
+                        }
+                        
+                        // Get 24h price change
+                        if (pair.priceChange?.h24 !== undefined) {
+                            tokenData.priceChange24h = parseFloat(pair.priceChange.h24);
+                        }
                         
                         // Get banner/header
                         if (pair.info?.header) {
@@ -243,9 +255,7 @@ const fetchDexScreenerData = async (mints: string[]): Promise<Map<string, DexScr
                             }
                         }
                         
-                        if (tokenData.banner || tokenData.socials) {
-                            dataMap.set(mint, tokenData);
-                        }
+                        dataMap.set(mint, tokenData);
                     }
                 }
             } catch (e) {
@@ -387,12 +397,11 @@ export const fetchUserTokens = async (connection: Connection, walletPublicKey: P
       
       const meta = metadataMap.get(mint);
       const priceInfo = priceMap.get(mint);
-      
-      // Use Jupiter V2 metadata price if available, otherwise use Price V3
-      const price = meta?.usdPrice || priceInfo?.usdPrice || 0;
-      const change24h = meta?.priceChange24h || priceInfo?.priceChange24h || 0;
-
       const dexData = dexScreenerData.get(mint);
+      
+      // Use Jupiter V2 metadata price if available, otherwise use Price V3, then DexScreener as fallback
+      const price = meta?.usdPrice || priceInfo?.usdPrice || dexData?.price || 0;
+      const change24h = meta?.priceChange24h || priceInfo?.priceChange24h || dexData?.priceChange24h || 0;
       
       return {
         mint,

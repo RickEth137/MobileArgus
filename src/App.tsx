@@ -21526,16 +21526,17 @@ function IndexPopup() {
           display: 'flex',
           flexDirection: 'column'
         }}>
+          {/* Scrollable Content */}
           <div style={{
             padding: '16px 20px',
             width: '100%',
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden'
+            overflowY: 'auto'
           }}>
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
               <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>Transaction Details</h2>
               <button onClick={() => setSelectedTransaction(null)} style={{
                 background: 'rgba(255, 255, 255, 0.1)',
@@ -21771,21 +21772,25 @@ function IndexPopup() {
                 </div>
               </div>
             )}
+          </div>
 
-            {/* Spacer to push button to bottom */}
-            <div style={{ flex: 1 }} />
-
-            {/* View on Orb Button */}
+          {/* Fixed Footer - View on Orb Button */}
+          <div style={{ 
+            padding: '16px 20px', 
+            borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+            flexShrink: 0,
+            background: '#121216'
+          }}>
             <button
               onClick={() => window.open(`https://orb.helius.dev/tx/${selectedTransaction.signature}?tab=summary`, '_blank')}
               style={{
                 width: '100%',
-                padding: '12px 16px',
+                padding: '14px 16px',
                 background: 'rgba(255, 255, 255, 0.05)',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 borderRadius: 12,
                 color: 'rgba(255, 255, 255, 0.8)',
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: 500,
                 cursor: 'pointer',
                 display: 'flex',

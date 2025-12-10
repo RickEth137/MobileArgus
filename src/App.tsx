@@ -3261,12 +3261,25 @@ function IndexPopup() {
                   console.log('[Voice] Verification failed or cancelled')
                 }
               } else {
-                console.log('[Voice] No fingerprint enrolled, skipping voice verification')
-                verified = true // Skip if no fingerprint enrolled
+                // CRITICAL SECURITY: Voice layer is ENABLED but no fingerprint on server!
+                // This should not happen - block the transaction
+                console.error('[Voice] SECURITY BLOCK: Voice enabled but no fingerprint on server!')
+                setTxVerificationModal(prev => ({
+                  ...prev,
+                  error: 'Voice not enrolled. Please set up voice verification in Security settings.',
+                  currentLayer: null
+                }))
+                verified = false
               }
             } catch (e) {
+              // CRITICAL SECURITY: On error, we MUST NOT allow transaction
               console.error('[Voice] Verification error:', e)
-              verified = true // Skip on error for now
+              setTxVerificationModal(prev => ({
+                ...prev,
+                error: 'Voice verification failed. Please try again.',
+                currentLayer: null
+              }))
+              verified = false
             }
             break
             
@@ -3281,11 +3294,19 @@ function IndexPopup() {
                 console.log('[Geo] Location captured')
                 // Also save to state for use in handleVerifyButtonClick (for later USB/Bluetooth saves)
                 setPendingVerifiedGeoLocation(verifiedGeoLocation)
+              } else {
+                console.log('[Geo] Location not available or denied')
               }
               console.log('[Geo] Verified:', verified)
             } catch (e) {
+              // CRITICAL SECURITY: Geo is always required for vault transactions
               console.error('[Geo] Verification error:', e)
-              verified = true // Skip on error for demo
+              setTxVerificationModal(prev => ({
+                ...prev,
+                error: 'Location verification failed. Please enable location access.',
+                currentLayer: null
+              }))
+              verified = false
             }
             break
             
@@ -3470,10 +3491,18 @@ function IndexPopup() {
               try {
                 const { verifyBiometric, isBiometricEnrolled } = await import('./utils/native-biometric')
                 
-                // Check if biometric is enrolled
+                // Check if biometric is enrolled LOCALLY (WebAuthn credential in localStorage)
                 if (!isBiometricEnrolled(wallet.publicKey.toBase58())) {
-                  console.log('[Biometric] Not enrolled, skipping')
-                  verified = true // Skip if not enrolled
+                  // CRITICAL SECURITY: Biometric is ENABLED on server but no local credential!
+                  // This could mean: cleared browser data, different device, or tampering
+                  // We MUST NOT skip - require re-enrollment or block transaction
+                  console.error('[Biometric] SECURITY BLOCK: Enabled on server but no local credential!')
+                  setTxVerificationModal(prev => ({
+                    ...prev,
+                    error: 'Biometric not set up on this device. Please re-enroll Face ID/Touch ID in Security settings.',
+                    currentLayer: null
+                  }))
+                  verified = false
                 } else {
                   console.log('[Biometric] Prompting for Face ID / Touch ID...')
                   

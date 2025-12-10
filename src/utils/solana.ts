@@ -96,3 +96,39 @@ export const sendSol = async (
     await connection.confirmTransaction(signature, "confirmed");
     return signature;
 }
+
+// Derive a wallet from a seed phrase at a specific index
+// For index 0: use first 32 bytes of seed
+// For index > 0: hash(seed + index) to get unique 32-byte seed
+export const deriveWalletFromSeed = async (mnemonic: string, index: number): Promise<{
+    publicKey: string;
+    secretKey: string;
+    keypair: Keypair;
+}> => {
+    const seed = await bip39.mnemonicToSeed(mnemonic);
+    
+    let derivedSeed: Uint8Array;
+    
+    if (index === 0) {
+        derivedSeed = new Uint8Array(seed.slice(0, 32));
+    } else {
+        // For additional accounts, create a unique seed by hashing seed + index
+        const encoder = new TextEncoder();
+        const indexBytes = encoder.encode(index.toString());
+        const combined = new Uint8Array(seed.length + indexBytes.length);
+        combined.set(seed, 0);
+        combined.set(indexBytes, seed.length);
+        
+        // Use SHA-256 to derive a unique 32-byte seed
+        const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+        derivedSeed = new Uint8Array(hashBuffer);
+    }
+    
+    const keypair = Keypair.fromSeed(derivedSeed);
+    
+    return {
+        publicKey: keypair.publicKey.toBase58(),
+        secretKey: bs58.encode(keypair.secretKey),
+        keypair
+    };
+}

@@ -1,7 +1,7 @@
 import "./utils/polyfill"
 import { useState, useEffect, useRef } from "react"
 import { Keypair, PublicKey } from "@solana/web3.js"
-import { connection, createNewWallet, getKeypairFromSecret, SimpleWallet, getBalance, sendSol } from "./utils/solana"
+import { connection, createNewWallet, getKeypairFromSecret, SimpleWallet, getBalance, sendSol, deriveWalletFromSeed } from "./utils/solana"
 import { createSquad, createTransferProposal, createSwapProposal, approveProposal, executeProposal, executeSwapProposal, getTransactionPda, getNextTransactionIndex } from "./utils/squads"
 import { getBrowserLocation } from "./utils/geo"
 import { getServerConfig, requestServerApproval, activateGeoGuard, registerVault, checkVaultExists, registerUser, getSecuritySettings, updateSecurityLayer, getExchangeRates, CURRENCY_INFO, type ExchangeRates, enrollVoiceFingerprint, getVoiceFingerprint, checkVoiceEnabled, disableVoiceAuth, updateHomeLocation, verifyServerPassword, setServerPassword, checkServerPassword, GeoFenceError } from "./utils/api"
@@ -1991,27 +1991,39 @@ function IndexPopup() {
   }, [view, editingWallet])
 
   // Function to derive a new wallet from seed phrase
-  // If no seed phrase exists (genesis was imported via private key), generates a random wallet and prompts for password
+  // If no seed phrase exists (genesis was imported via private key), generates a random wallet
   const createNewWalletFromSeed = async () => {
     setIsAddingWallet(true)
     try {
       const nextIndex = walletAccounts.length
       
-      // Request background to derive a new wallet
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'DERIVE_NEW_WALLET',
-        index: nextIndex
-      })
+      // Get stored mnemonic from localStorage
+      const storedMnemonicRaw = localStorage.getItem('geovault_mnemonic')
       
-      if (!response.success) {
-        throw new Error(response.error || "Failed to derive wallet")
+      let publicKey: string
+      let secretKey: string
+      
+      if (storedMnemonicRaw) {
+        // Derive wallet from seed phrase
+        const storedMnemonic = JSON.parse(storedMnemonicRaw)
+        console.log('[PWA] Deriving wallet at index:', nextIndex)
+        const derived = await deriveWalletFromSeed(storedMnemonic, nextIndex)
+        publicKey = derived.publicKey
+        secretKey = derived.secretKey
+      } else {
+        // No seed phrase stored (imported via private key), generate random wallet
+        console.log('[PWA] No seed phrase, generating random wallet')
+        const { Keypair } = await import("@solana/web3.js")
+        const keypair = Keypair.generate()
+        publicKey = keypair.publicKey.toBase58()
+        secretKey = bs58.encode(keypair.secretKey)
       }
 
       const newAccount: WalletAccount = {
         index: nextIndex,
         name: newWalletName || `Account ${nextIndex + 1}`,
-        publicKey: response.publicKey,
-        secretKey: response.secretKey
+        publicKey,
+        secretKey
       }
       
       const updatedAccounts = [...walletAccounts, newAccount]

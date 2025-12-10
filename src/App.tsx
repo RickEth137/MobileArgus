@@ -4386,17 +4386,25 @@ function IndexPopup() {
           setWallet(keypair);
           setMnemonic(onboardingGeneratedMnemonic);
           
-          // Register user and set password on server
+          // Register user and set password on server - CRITICAL for database sync
           console.log('[Onboarding] Registering user and password on server...');
+          console.log('[Onboarding] Public key:', keypair.publicKey.toBase58());
+          console.log('[Onboarding] Password length:', onboardingPassword?.length || 0);
+          
           try {
-            await registerUser(keypair.publicKey.toBase58());
+            const regResult = await registerUser(keypair.publicKey.toBase58());
+            console.log('[Onboarding] registerUser result:', regResult);
+            
             if (onboardingPassword) {
-              await setServerPassword(keypair.publicKey.toBase58(), onboardingPassword);
+              const pwResult = await setServerPassword(keypair.publicKey.toBase58(), onboardingPassword);
+              console.log('[Onboarding] setServerPassword result:', pwResult);
             }
             console.log('[Onboarding] Server registration complete!');
-          } catch (serverErr) {
+          } catch (serverErr: any) {
             console.error('[Onboarding] Server registration failed:', serverErr);
-            // Continue anyway - local wallet is created, server registration can be retried
+            console.error('[Onboarding] Error details:', serverErr.message);
+            // Show error to user but don't block - they can still use the wallet locally
+            setStatus('Warning: Could not sync to server. Your wallet works locally.');
           }
           
           console.log('[Onboarding] Wallet creation complete!');
@@ -4869,10 +4877,6 @@ function IndexPopup() {
 
             <button
               onClick={handleCreateContinue}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                if (onboardingSeedSaved) handleCreateContinue();
-              }}
               disabled={!onboardingSeedSaved}
               style={{
                 width: '100%',
@@ -5082,21 +5086,9 @@ function IndexPopup() {
             <div style={{ flex: 1 }} />
 
             <button
-              onClick={() => {
+              onClick={async () => {
                 console.log('[Verify] Complete Setup clicked');
-                handleCreateContinue();
-              }}
-              onTouchStart={() => {
-                console.log('[Verify] Complete Setup touch start');
-              }}
-              onTouchEnd={(e) => {
-                console.log('[Verify] Complete Setup touch end');
-                e.preventDefault();
-                e.stopPropagation();
-                if (firstWordCorrect === true && lastWordCorrect === true) {
-                  console.log('[Verify] Calling handleCreateContinue...');
-                  handleCreateContinue();
-                }
+                await handleCreateContinue();
               }}
               disabled={!(firstWordCorrect === true && lastWordCorrect === true)}
               style={{
@@ -11367,7 +11359,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable 2FA Mobile',
-                      message: 'Enter this vault\'s password to disable 2FA Mobile verification.',
+                      message: 'Enter this wallet\'s password to disable 2FA Mobile verification.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11420,7 +11412,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up 2FA Mobile',
-                      message: 'Enter this vault\'s password to configure mobile 2FA verification.',
+                      message: 'Enter this wallet\'s password to configure mobile 2FA verification.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -11530,7 +11522,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable Bluetooth',
-                      message: 'Enter this vault\'s password to disable Bluetooth security layer.',
+                      message: 'Enter this wallet\'s password to disable Bluetooth security layer.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11649,7 +11641,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable USB Key',
-                      message: 'Enter this vault\'s password to disable USB key security layer.',
+                      message: 'Enter this wallet\'s password to disable USB key security layer.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11768,7 +11760,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable Biometric',
-                      message: 'Enter this vault\'s password to disable biometric (FaceID/TouchID) verification.',
+                      message: 'Enter this wallet\'s password to disable biometric (FaceID/TouchID) verification.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11822,7 +11814,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up Biometric',
-                      message: 'Enter this vault\'s password to configure FaceID/TouchID verification.',
+                      message: 'Enter this wallet\'s password to configure FaceID/TouchID verification.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -11975,7 +11967,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up Voice for This Wallet',
-                      message: 'Enter this vault\'s password to set up voice verification for transactions.',
+                      message: 'Enter this wallet\'s password to set up voice verification for transactions.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -12025,7 +12017,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable Voice Layer',
-                      message: 'Enter this vault\'s password to disable voice as a security layer.',
+                      message: 'Enter this wallet\'s password to disable voice as a security layer.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -12079,7 +12071,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up Voice Layer',
-                      message: 'Enter this vault\'s password to record your voice phrase for transaction security.',
+                      message: 'Enter this wallet\'s password to record your voice phrase for transaction security.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -12224,7 +12216,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: t('revealPrivateKey', lang),
-                      message: 'Enter this vault\'s password to reveal your private key.',
+                      message: 'Enter this wallet\'s password to reveal your private key.',
                       confirmText: t('reveal', lang),
                       danger: false,
                       requirePassword: true,
@@ -12377,7 +12369,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: t('revealRecoveryPhrase', lang),
-                      message: 'Enter this vault\'s password to reveal your recovery phrase.',
+                      message: 'Enter this wallet\'s password to reveal your recovery phrase.',
                       confirmText: t('reveal', lang),
                       danger: false,
                       requirePassword: true,

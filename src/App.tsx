@@ -3335,53 +3335,23 @@ function IndexPopup() {
           case 'biometric':
             console.log('[Biometric] Starting verification, enabled:', enabledLayers.biometric)
             if (enabledLayers.biometric) {
-              // Show QR code for user to scan with phone
+              // Use native biometric (Face ID / Touch ID) directly on device
               try {
-                const { createBiometricSession, checkBiometricSession, cancelBiometricSession } = await import('./utils/qr-verify')
+                const { verifyBiometric, isBiometricEnrolled } = await import('./utils/native-biometric')
                 
-                const session = await createBiometricSession(wallet.publicKey.toBase58(), 'authenticate')
-                if (!session) {
-                  console.log('[Biometric] Failed to create session')
-                  verified = false
+                // Check if biometric is enrolled
+                if (!isBiometricEnrolled(wallet.publicKey.toBase58())) {
+                  console.log('[Biometric] Not enrolled, skipping')
+                  verified = true // Skip if not enrolled
                 } else {
-                  console.log('[Biometric] Session created, showing QR code:', session.sessionId)
+                  console.log('[Biometric] Prompting for Face ID / Touch ID...')
                   
-                  // Update modal to show QR code
-                  setTxVerificationModal(prev => ({
-                    ...prev,
-                    biometricQrData: session.qrData,
-                    biometricSessionId: session.sessionId
-                  }))
+                  const result = await verifyBiometric(wallet.publicKey.toBase58())
+                  console.log('[Biometric] Result:', result)
                   
-                  // Poll for verification (max 60 seconds)
-                  let attempts = 0
-                  const maxAttempts = 30
-                  
-                  while (attempts < maxAttempts) {
-                    await new Promise(r => setTimeout(r, 2000))
-                    const status = await checkBiometricSession(session.sessionId)
-                    console.log('[Biometric] Poll status:', status.status)
-                    
-                    if (status.status === 'verified') {
-                      verified = true
-                      break
-                    } else if (status.status === 'failed' || status.status === 'expired') {
-                      verified = false
-                      break
-                    }
-                    attempts++
-                  }
-                  
-                  // Clear QR code
-                  setTxVerificationModal(prev => ({
-                    ...prev,
-                    biometricQrData: undefined,
-                    biometricSessionId: undefined
-                  }))
-                  
-                  if (!verified && attempts >= maxAttempts) {
-                    await cancelBiometricSession(session.sessionId)
-                    console.log('[Biometric] Timed out')
+                  verified = result.success
+                  if (!verified) {
+                    console.log('[Biometric] Verification failed:', result.error)
                   }
                 }
               } catch (e: any) {
@@ -3796,7 +3766,7 @@ function IndexPopup() {
                 {txVerificationModal.currentLayer === 'bluetooth' && (txVerificationModal.pendingUserAction ? 'Tap to connect Bluetooth' : 'Connecting Bluetooth...')}
                 {txVerificationModal.currentLayer === 'usb' && (txVerificationModal.pendingUserAction ? 'Tap to verify USB key' : 'Reading USB key...')}
                 {txVerificationModal.currentLayer === 'wifi' && 'Verifying 2FA Mobile...'}
-                {txVerificationModal.currentLayer === 'biometric' && (txVerificationModal.biometricQrData ? 'Scan QR code with your phone' : 'Preparing biometric...')}
+                {txVerificationModal.currentLayer === 'biometric' && 'Verifying Face ID...'}
                 {txVerificationModal.currentLayer === 'proposal' && 'Creating proposal (1/3)...'}
                 {txVerificationModal.currentLayer === 'approval' && 'Awaiting approval (2/3)...'}
                 {txVerificationModal.currentLayer === 'execute' && 'Executing transaction (3/3)...'}
@@ -11508,6 +11478,9 @@ function IndexPopup() {
                           })
                           if (response.success) {
                             setUpdatingSecurityLayer('biometric')
+                            // Also remove local biometric credential
+                            const { removeBiometric } = await import('./utils/native-biometric')
+                            removeBiometric(editingWallet.publicKey)
                             await updateSecurityLayer(editingWallet.publicKey, 'biometric', false)
                             setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: false, biometricCredentialId: null } : null)
                             setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
@@ -11567,19 +11540,35 @@ function IndexPopup() {
                           
                           setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                           
-                          // Now show QR code modal for mobile setup
-                          const { createBiometricSession } = await import('./utils/qr-verify')
-                          const session = await createBiometricSession(editingWallet.publicKey, 'register')
-                          if (session) {
-                            setMobileQRModal({
-                              show: true,
-                              mode: 'setup',
-                              layerType: 'biometric',
-                              sessionId: session.sessionId,
-                              qrData: session.qrData,
-                              status: 'pending',
-                              publicKey: editingWallet.publicKey
-                            })
+                          // Use native biometric enrollment (Face ID / Touch ID)
+                          setUpdatingSecurityLayer('biometric')
+                          try {
+                            const { enrollBiometric, isBiometricAvailable } = await import('./utils/native-biometric')
+                            
+                            // Check if device supports biometrics
+                            const available = await isBiometricAvailable()
+                            if (!available) {
+                              setSuccessModal({ show: true, deviceName: 'Face ID/Touch ID not available on this device', type: 'disabled', deviceType: 'biometric' })
+                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                              return
+                            }
+                            
+                            // Enroll biometric
+                            const result = await enrollBiometric(editingWallet.publicKey)
+                            if (result.success) {
+                              await updateSecurityLayer(editingWallet.publicKey, 'biometric', true)
+                              setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: true, biometricCredentialId: result.credentialId || null } : null)
+                              setSuccessModal({ show: true, deviceName: 'Face ID', type: 'enabled', deviceType: 'biometric' })
+                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                            } else {
+                              setSuccessModal({ show: true, deviceName: result.error || 'Enrollment failed', type: 'disabled', deviceType: 'biometric' })
+                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                            }
+                          } catch (e: any) {
+                            setSuccessModal({ show: true, deviceName: e.message || 'Enrollment failed', type: 'disabled', deviceType: 'biometric' })
+                            setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                          } finally {
+                            setUpdatingSecurityLayer(null)
                           }
                         } catch (error: any) {
                           setConfirmPasswordError(error.message || "Failed to verify password")
@@ -12328,7 +12317,7 @@ function IndexPopup() {
                   {txVerificationModal.currentLayer === 'geo' && 'Checking location...'}
                   {txVerificationModal.currentLayer === 'bluetooth' && (txVerificationModal.pendingUserAction ? 'Tap to connect Bluetooth' : 'Connecting Bluetooth...')}
                   {txVerificationModal.currentLayer === 'usb' && (txVerificationModal.pendingUserAction ? 'Tap to verify USB key' : 'Reading USB key...')}
-                  {txVerificationModal.currentLayer === 'biometric' && (txVerificationModal.biometricQrData ? 'Scan QR code with your phone' : 'Preparing biometric...')}
+                  {txVerificationModal.currentLayer === 'biometric' && 'Verifying Face ID...'}
                   {txVerificationModal.currentLayer === 'proposal' && 'Creating proposal (1/3)...'}
                   {txVerificationModal.currentLayer === 'approval' && 'Awaiting approval (2/3)...'}
                   {txVerificationModal.currentLayer === 'execute' && 'Executing transaction (3/3)...'}

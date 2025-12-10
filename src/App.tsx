@@ -3249,6 +3249,10 @@ function IndexPopup() {
                     walletAddress: wallet.publicKey.toBase58(),
                     enrolledFingerprint: fpResult.fingerprint
                   })
+                  
+                  // Force a re-render by using flushSync or small timeout
+                  // React batches state updates, so we need to ensure the modal renders
+                  console.log('[Voice] Modal state set, waiting for user interaction...')
                 })
                 
                 console.log('[Voice] Verify result:', verifyResult.success)
@@ -4212,6 +4216,34 @@ function IndexPopup() {
             </div>
           </div>
         </div>
+        
+        {/* Voice Enrollment Modal - MUST be inside txVerificationModal return block */}
+        <VoiceEnrollmentModal
+          show={voiceEnrollmentModal.show}
+          mode={voiceEnrollmentModal.mode}
+          walletAddress={voiceEnrollmentModal.walletAddress}
+          enrolledFingerprint={voiceEnrollmentModal.enrolledFingerprint}
+          onComplete={async (result) => {
+            setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
+            
+            // Handle verify-for-tx mode - resolve the pending promise for transaction security verification
+            if (voiceEnrollmentModal.mode === 'verify-for-tx') {
+              if (pendingVoiceVerificationResolve.current) {
+                pendingVoiceVerificationResolve.current({ success: result.success })
+                pendingVoiceVerificationResolve.current = null
+              }
+              return
+            }
+          }}
+          onClose={() => {
+            setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
+            // If we're in verify-for-tx mode and user closes, resolve with failure
+            if (voiceEnrollmentModal.mode === 'verify-for-tx' && pendingVoiceVerificationResolve.current) {
+              pendingVoiceVerificationResolve.current({ success: false })
+              pendingVoiceVerificationResolve.current = null
+            }
+          }}
+        />
       </>
     )
   }
@@ -12701,6 +12733,34 @@ function IndexPopup() {
               </div>
             </div>
           </div>
+          
+          {/* Voice Enrollment Modal - MUST be inside txVerificationModal return block for vault send */}
+          <VoiceEnrollmentModal
+            show={voiceEnrollmentModal.show}
+            mode={voiceEnrollmentModal.mode}
+            walletAddress={voiceEnrollmentModal.walletAddress}
+            enrolledFingerprint={voiceEnrollmentModal.enrolledFingerprint}
+            onComplete={async (result) => {
+              setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
+              
+              // Handle verify-for-tx mode - resolve the pending promise for transaction security verification
+              if (voiceEnrollmentModal.mode === 'verify-for-tx') {
+                if (pendingVoiceVerificationResolve.current) {
+                  pendingVoiceVerificationResolve.current({ success: result.success })
+                  pendingVoiceVerificationResolve.current = null
+                }
+                return
+              }
+            }}
+            onClose={() => {
+              setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
+              // If we're in verify-for-tx mode and user closes, resolve with failure
+              if (voiceEnrollmentModal.mode === 'verify-for-tx' && pendingVoiceVerificationResolve.current) {
+                pendingVoiceVerificationResolve.current({ success: false })
+                pendingVoiceVerificationResolve.current = null
+              }
+            }}
+          />
         </>
       );
     }

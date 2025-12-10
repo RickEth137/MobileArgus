@@ -7,6 +7,7 @@ import { getBrowserLocation } from "./utils/geo"
 import { getServerConfig, requestServerApproval, activateGeoGuard, registerVault, checkVaultExists, registerUser, getSecuritySettings, updateSecurityLayer, getExchangeRates, CURRENCY_INFO, type ExchangeRates, enrollVoiceFingerprint, getVoiceFingerprint, checkVoiceEnabled, disableVoiceAuth, updateHomeLocation, verifyServerPassword, setServerPassword, checkServerPassword, GeoFenceError } from "./utils/api"
 import { fetchTransactionHistory, type Transaction } from "./utils/transactions"
 import { useStorage } from "./hooks/useStorage"
+import { pwaStorage, getMnemonic, saveMnemonic, verifyLocalPassword, savePasswordHash, openInNewTab, isExtensionContext, getAssetUrl } from "./utils/pwa-storage"
 import bs58 from "bs58"
 import { QRCodeSVG } from "qrcode.react"
 import { fetchUserTokens, getSolanaPrice, fetchTokenDetailData, type TokenData, type TokenDetailData, cacheSuccessfulLogo, cacheFailedLogo } from "./utils/tokens"
@@ -393,24 +394,32 @@ const styles = {
   },
   seedBox: {
     background: 'rgba(0, 0, 0, 0.5)',
-    padding: 20,
+    padding: 16,
     borderRadius: 20,
     border: '1px solid rgba(255, 255, 255, 0.08)',
     marginBottom: 24,
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr',
-    gap: 14
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 10,
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    maxWidth: '100%',
+    overflow: 'hidden'
   },
   seedWord: {
     background: 'rgba(255, 255, 255, 0.06)',
-    padding: 14,
+    padding: '12px 8px',
     borderRadius: 12,
-    fontSize: 15,
+    fontSize: 14,
     textAlign: 'center' as const,
     color: 'rgba(255, 255, 255, 0.9)',
     fontFamily: 'monospace',
     fontWeight: 500,
-    border: '1px solid rgba(255, 255, 255, 0.08)'
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const
   },
   addressPill: {
     background: 'rgba(255, 255, 255, 0.06)',
@@ -700,10 +709,10 @@ function IndexPopup() {
     try {
       const key = `cost_basis_${tokenAddress}`;
       if (costBasis) {
-        await chrome.storage.local.set({ [key]: costBasis });
+        await pwaStorage.local.set({ [key]: costBasis });
         console.log('[PNL] Saved cost basis for', tokenAddress, costBasis);
       } else {
-        await chrome.storage.local.remove(key);
+        await pwaStorage.local.remove(key);
       }
     } catch (e) {
       console.error('[PNL] Failed to save cost basis:', e);
@@ -714,7 +723,7 @@ function IndexPopup() {
   const loadCostBasis = async (tokenAddress: string): Promise<{ totalSolSpent: number; totalTokensBought: number } | null> => {
     try {
       const key = `cost_basis_${tokenAddress}`;
-      const result = await chrome.storage.local.get(key);
+      const result = await pwaStorage.local.get(key);
       const costBasis = result[key] || null;
       console.log('[PNL] Loaded cost basis for', tokenAddress, costBasis);
       return costBasis;
@@ -1069,6 +1078,13 @@ function IndexPopup() {
   const [isCheckingPendingState, setIsCheckingPendingState] = useState(true)
 
   useEffect(() => {
+    // PWA: Skip USB/Bluetooth pending state restoration - only works in extension context
+    if (!isExtensionContext()) {
+      console.log('[Popup] PWA mode - skipping pending transaction state check')
+      setIsCheckingPendingState(false)
+      return
+    }
+    
     console.log('[Popup] Checking for pending transaction state on mount...')
     chrome.storage.local.get(['pending_tx_state', 'usb_verify_result', 'bluetooth_verify_result']).then(async (result) => {
       const pendingState = result.pending_tx_state
@@ -1211,8 +1227,14 @@ function IndexPopup() {
     })
   }, []) // Only run once on mount
 
-  // Load Degen settings on mount
+  // Load Degen settings on mount - EXTENSION ONLY (Degen/Sniper features)
   useEffect(() => {
+    // PWA: Skip Degen/Sniper features - only work in extension context
+    if (!isExtensionContext()) {
+      console.log('[PWA] Skipping Degen/Sniper features')
+      return
+    }
+    
     chrome.storage.sync.get('degen_settings').then((result) => {
       if (result.degen_settings) {
         const settings = result.degen_settings;
@@ -1439,6 +1461,9 @@ function IndexPopup() {
 
   useEffect(() => {
     if (!degenMode) return;
+    
+    // PWA: Degen scraper only works in extension context
+    if (!isExtensionContext()) return;
     
     // Request data from the content script (if on DexScreener) - for live updates
     const requestScraperData = async () => {
@@ -1760,8 +1785,13 @@ function IndexPopup() {
     }
   }, [storedAccounts, storedSecret, wallet, storedUsername])
 
-  // Check if we should open a specific vault after USB/Bluetooth setup
+  // Check if we should open a specific vault after USB/Bluetooth setup - EXTENSION ONLY
   useEffect(() => {
+    // PWA: Skip USB/Bluetooth setup flow - only works in extension context
+    if (!isExtensionContext()) {
+      return
+    }
+    
     console.log('[Setup] useEffect running, walletAccounts.length:', walletAccounts.length)
     
     // Run when we have wallet accounts loaded
@@ -2900,8 +2930,21 @@ function IndexPopup() {
         case 'bluetooth':
           // Bluetooth verification - open a tab where user can pick a Bluetooth device
           // MUST have a registered device to verify against
+          // NOTE: This only works in extension context - PWA uses Web Bluetooth directly
           {
             console.log('[Bluetooth] User tapped verify, opening dedicated Bluetooth verify tab...')
+            
+            // PWA: Bluetooth verification via tab is extension-only
+            if (!isExtensionContext()) {
+              console.log('[Bluetooth] PWA mode - Bluetooth verification not supported')
+              setTxVerificationModal(prev => ({
+                ...prev,
+                error: 'Bluetooth verification is only available in the browser extension.'
+              }))
+              verified = false
+              break
+            }
+            
             const requestId = Date.now().toString()
             
             // Check for device in both new format (bluetoothDevice.id) and old storage format (bluetoothDeviceId)
@@ -3005,12 +3048,15 @@ function IndexPopup() {
           const challenge = new Uint8Array(32)
           crypto.getRandomValues(challenge)
           
+          // PWA: Use window.location.hostname as rpId, extension uses chrome.runtime.id
+          const rpId = isExtensionContext() ? chrome.runtime.id : window.location.hostname
+          
           const credential = await navigator.credentials.get({
             publicKey: {
               challenge: challenge,
               timeout: 60000,
               userVerification: 'required',
-              rpId: chrome.runtime.id,
+              rpId: rpId,
               allowCredentials: []
             }
           })
@@ -4009,7 +4055,7 @@ function IndexPopup() {
               </h1>
             </div>
             <div style={{ position: 'relative', width: 200, height: 200, margin: '8px 0 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img src={chrome.runtime.getURL("assets/arguslogo.png")} alt="ARGUS" style={{ width: 75, height: 75, borderRadius: 18, objectFit: 'contain', zIndex: 10, position: 'relative', filter: txVerificationModal.currentLayer === 'done' ? 'drop-shadow(0 0 20px rgba(16, 185, 129, 0.5))' : 'none', animation: txVerificationModal.currentLayer === 'done' ? 'txSuccessPulse 2s ease-in-out infinite' : 'none' }} />
+              <img src={getAssetUrl("assets/arguslogo.png")} alt="ARGUS" style={{ width: 75, height: 75, borderRadius: 18, objectFit: 'contain', zIndex: 10, position: 'relative', filter: txVerificationModal.currentLayer === 'done' ? 'drop-shadow(0 0 20px rgba(16, 185, 129, 0.5))' : 'none', animation: txVerificationModal.currentLayer === 'done' ? 'txSuccessPulse 2s ease-in-out infinite' : 'none' }} />
               <div style={{ position: 'absolute', width: 130, height: 130, borderRadius: '50%', border: txVerificationModal.currentLayer === 'done' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)' }} />
               <div style={{ position: 'absolute', width: 190, height: 190, borderRadius: '50%', border: txVerificationModal.currentLayer === 'done' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)' }} />
               <div style={{ position: 'absolute', width: 130, height: 130, borderRadius: '50%', animation: 'txOrbitRotate 30s linear infinite' }}>
@@ -5701,45 +5747,49 @@ function IndexPopup() {
     
     const fetchSeedPhrase = async () => {
       try {
-        const response = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC_FOR_DERIVATION" })
-        if (response && response.mnemonic) {
-          setSeedPhrase(response.mnemonic)
+        // PWA: Read mnemonic directly from localStorage instead of chrome.runtime.sendMessage
+        const storedMnemonic = getMnemonic()
+        if (storedMnemonic) {
+          setSeedPhrase(storedMnemonic)
           setShowSeedPhrase(true)
           setNoSeedStored(false)
-        } else if (response && response.error && response.error.includes("No seed phrase stored")) {
+        } else {
           setNoSeedStored(true)
           setShowLinkSeedModal(true)
-        } else {
-          setStatus("Unable to retrieve seed phrase")
         }
       } catch (e: any) {
-        if (e.message && e.message.includes("No seed phrase stored")) {
-          setNoSeedStored(true)
-          setShowLinkSeedModal(true)
-        } else {
-          setStatus("Error retrieving seed phrase")
-        }
+        setNoSeedStored(true)
+        setShowLinkSeedModal(true)
       }
     }
 
     const handleLinkSeedPhrase = async () => {
       setIsLinkingSeed(true)
       try {
-        const response = await chrome.runtime.sendMessage({
-          type: "LINK_SEED_PHRASE",
-          seedPhrase: linkSeedInput.trim(),
-          password: linkSeedPassword
-        })
+        // PWA: Validate and save mnemonic directly to localStorage
+        const bip39 = await import('bip39')
+        const trimmedSeed = linkSeedInput.trim()
         
-        if (response && response.success) {
-          setStatus("Seed phrase linked successfully!")
-          setShowLinkSeedModal(false)
-          setLinkSeedInput("")
-          setLinkSeedPassword("")
-          setNoSeedStored(false)
-        } else {
-          setStatus(response?.error || "Failed to link seed phrase")
+        if (!bip39.validateMnemonic(trimmedSeed)) {
+          setStatus("Invalid seed phrase")
+          return
         }
+        
+        // Verify password matches stored hash
+        const passwordValid = await verifyLocalPassword(linkSeedPassword)
+        if (!passwordValid) {
+          setStatus("Incorrect password")
+          return
+        }
+        
+        // Save mnemonic to localStorage
+        saveMnemonic(trimmedSeed)
+        
+        setStatus("Seed phrase linked successfully!")
+        setShowLinkSeedModal(false)
+        setLinkSeedInput("")
+        setLinkSeedPassword("")
+        setNoSeedStored(false)
       } catch (e: any) {
         setStatus(e.message || "Error linking seed phrase")
       } finally {
@@ -6057,7 +6107,7 @@ function IndexPopup() {
                   
                   {/* Center ARGUS Logo */}
                   <img 
-                    src={chrome.runtime.getURL("assets/arguslogo.png")} 
+                    src={getAssetUrl("assets/arguslogo.png")} 
                     alt="ARGUS" 
                     style={{
                       width: 75,
@@ -7497,26 +7547,33 @@ function IndexPopup() {
                           setChangePasswordError("")
 
                           try {
-                            const response = await chrome.runtime.sendMessage({
-                              type: "CHANGE_PASSWORD",
-                              publicKey: genesisPublicKey,
-                              oldPassword: currentPassword,
-                              newPassword: newPassword
-                            })
-
-                            if (response.success) {
-                              setChangePasswordSuccess(true)
-                              setCurrentPassword("")
-                              setNewPassword("")
-                              setConfirmNewPassword("")
-                              // Auto-close after success
-                              setTimeout(() => {
-                                setShowChangePassword(false)
-                                setChangePasswordSuccess(false)
-                              }, 2500)
-                            } else {
-                              setChangePasswordError(response.error || "Failed to change password")
+                            // PWA: Verify old password locally and update hash
+                            const oldPasswordValid = await verifyLocalPassword(currentPassword)
+                            if (!oldPasswordValid) {
+                              setChangePasswordError("Current password is incorrect")
+                              setIsChangingPassword(false)
+                              return
                             }
+                            
+                            // Update password hash locally
+                            await savePasswordHash(newPassword)
+                            
+                            // Also update on server if possible
+                            try {
+                              await setServerPassword(genesisPublicKey, newPassword)
+                            } catch (e) {
+                              console.warn('[PWA] Failed to update server password:', e)
+                            }
+
+                            setChangePasswordSuccess(true)
+                            setCurrentPassword("")
+                            setNewPassword("")
+                            setConfirmNewPassword("")
+                            // Auto-close after success
+                            setTimeout(() => {
+                              setShowChangePassword(false)
+                              setChangePasswordSuccess(false)
+                            }, 2500)
                           } catch (error: any) {
                             setChangePasswordError(error.message || "An error occurred")
                           } finally {
@@ -8153,16 +8210,20 @@ function IndexPopup() {
                             return
                           }
                           try {
-                            const response = await chrome.runtime.sendMessage({
-                              type: "VERIFY_SERVER_PASSWORD",
-                              password: password,
-                              publicKey: genesisPublicKey
-                            })
-                            if (response.success) {
+                            // PWA: Verify password locally first, fall back to server
+                            const localValid = await verifyLocalPassword(password)
+                            if (localValid) {
                               setShowPrivateKey(true)
                               setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                             } else {
-                              setConfirmPasswordError(t('incorrectPassword', lang))
+                              // Try server verification as fallback
+                              const serverResult = await verifyServerPassword(genesisPublicKey, password)
+                              if (serverResult.success) {
+                                setShowPrivateKey(true)
+                                setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
+                              } else {
+                                setConfirmPasswordError(t('incorrectPassword', lang))
+                              }
                             }
                           } catch (error) {
                             setConfirmPasswordError(t('incorrectPassword', lang))
@@ -8317,14 +8378,24 @@ function IndexPopup() {
                             return
                           }
                           try {
-                            const response = await chrome.runtime.sendMessage({ type: 'VERIFY_SERVER_PASSWORD', password, publicKey: genesisPublicKey })
-                            if (response && response.success) {
+                            // PWA: Verify password locally first, fall back to server
+                            const localValid = await verifyLocalPassword(password)
+                            if (localValid) {
                               fetchSeedPhrase()
                               setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                               setConfirmPassword("")
                               setConfirmPasswordError("")
                             } else {
-                              setConfirmPasswordError(t('incorrectPassword', lang))
+                              // Try server verification as fallback
+                              const serverResult = await verifyServerPassword(genesisPublicKey, password)
+                              if (serverResult.success) {
+                                fetchSeedPhrase()
+                                setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
+                                setConfirmPassword("")
+                                setConfirmPasswordError("")
+                              } else {
+                                setConfirmPasswordError(t('incorrectPassword', lang))
+                              }
                             }
                           } catch (e) {
                             setConfirmPasswordError(t('incorrectPassword', lang))
@@ -8575,7 +8646,7 @@ function IndexPopup() {
               margin: '0 auto 12px auto'
             }}>
               <img 
-                src={chrome.runtime.getURL("assets/arguslogo.png")}
+                src={getAssetUrl("assets/arguslogo.png")}
                 style={{ width: 28, height: 28, borderRadius: 6 }}
                 alt="ARGUS-1"
               />
@@ -11284,12 +11355,10 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
-                          if (response.success) {
+                          // PWA: Verify password locally first, fall back to server
+                          const localValid = await verifyLocalPassword(password)
+                          const serverResult = !localValid ? await verifyServerPassword(editingWallet.publicKey, password) : { success: true }
+                          if (localValid || serverResult.success) {
                             setUpdatingSecurityLayer('wifi')
                             const deviceName = securitySettings?.wifiDevice?.ssid || '2FA Mobile'
                             await updateSecurityLayer(editingWallet.publicKey, 'wifi', false)
@@ -11339,11 +11408,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet?.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -11452,11 +11518,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (response.success) {
                             setUpdatingSecurityLayer('bluetooth')
                             const deviceName = securitySettings?.bluetoothDevice?.name || 'Bluetooth Device'
@@ -11477,6 +11540,12 @@ function IndexPopup() {
                     })
                   } else {
                     // Enable Bluetooth - Open dedicated setup tab (most reliable for Bluetooth picker)
+                    // PWA: Bluetooth setup requires extension context
+                    if (!isExtensionContext()) {
+                      setStatus('Bluetooth setup is only available in the browser extension')
+                      setTimeout(() => setStatus(''), 3000)
+                      return
+                    }
                     const publicKey = editingWallet.publicKey
                     
                     chrome.tabs.create({
@@ -11568,11 +11637,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (response.success) {
                             setUpdatingSecurityLayer('usb')
                             // Get device name before disabling
@@ -11596,6 +11662,12 @@ function IndexPopup() {
                     })
                   } else {
                     // Enable USB - Open dedicated setup tab (most reliable for USB picker)
+                    // PWA: USB setup requires extension context
+                    if (!isExtensionContext()) {
+                      setStatus('USB key setup is only available in the browser extension')
+                      setTimeout(() => setStatus(''), 3000)
+                      return
+                    }
                     const publicKey = editingWallet.publicKey
                     
                     chrome.tabs.create({
@@ -11684,11 +11756,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (response.success) {
                             setUpdatingSecurityLayer('biometric')
                             // Also remove local biometric credential
@@ -11741,11 +11810,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet?.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -11897,12 +11963,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          // Verify password first
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet?.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -11951,11 +12013,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (response.success) {
                             setUpdatingSecurityLayer('voice')
                             await updateSecurityLayer(editingWallet.publicKey, 'voice', false)
@@ -12008,11 +12067,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet?.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (!response.success) {
                             setConfirmPasswordError("Incorrect password")
                             return
@@ -12156,11 +12212,8 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (response.success) {
                             setShowEditPrivateKey(true)
                             setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
@@ -12312,16 +12365,13 @@ function IndexPopup() {
                           return
                         }
                         try {
-                          const response = await chrome.runtime.sendMessage({
-                            type: "VERIFY_SERVER_PASSWORD",
-                            password: password,
-                            publicKey: editingWallet.publicKey
-                          })
+                          // PWA: Use local password verification instead of chrome.runtime.sendMessage
+                          const response = await pwaStorage.verifyLocalPassword(password)
                           if (response.success) {
-                            // Get the seed phrase
-                            const seedResponse = await chrome.runtime.sendMessage({ type: 'GET_SEED_PHRASE', password })
-                            if (seedResponse && seedResponse.seedPhrase) {
-                              setSeedPhrase(seedResponse.seedPhrase)
+                            // PWA: Get the seed phrase from localStorage
+                            const storedMnemonic = getMnemonic()
+                            if (storedMnemonic) {
+                              setSeedPhrase(storedMnemonic)
                               setShowSeedPhrase(true)
                               setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
                             } else {
@@ -12463,7 +12513,7 @@ function IndexPopup() {
                 </h1>
               </div>
               <div style={{ position: 'relative', width: 200, height: 200, margin: '8px 0 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img src={chrome.runtime.getURL("assets/arguslogo.png")} alt="ARGUS" style={{ width: 75, height: 75, borderRadius: 18, objectFit: 'contain', zIndex: 10, position: 'relative', filter: txVerificationModal.currentLayer === 'done' ? 'drop-shadow(0 0 20px rgba(16, 185, 129, 0.5))' : 'none', animation: txVerificationModal.currentLayer === 'done' ? 'txSuccessPulse 2s ease-in-out infinite' : 'none' }} />
+                <img src={getAssetUrl("assets/arguslogo.png")} alt="ARGUS" style={{ width: 75, height: 75, borderRadius: 18, objectFit: 'contain', zIndex: 10, position: 'relative', filter: txVerificationModal.currentLayer === 'done' ? 'drop-shadow(0 0 20px rgba(16, 185, 129, 0.5))' : 'none', animation: txVerificationModal.currentLayer === 'done' ? 'txSuccessPulse 2s ease-in-out infinite' : 'none' }} />
                 <div style={{ position: 'absolute', width: 130, height: 130, borderRadius: '50%', border: txVerificationModal.currentLayer === 'done' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)' }} />
                 <div style={{ position: 'absolute', width: 190, height: 190, borderRadius: '50%', border: txVerificationModal.currentLayer === 'done' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)' }} />
                 <div style={{ position: 'absolute', width: 130, height: 130, borderRadius: '50%', animation: 'txOrbitRotate 30s linear infinite' }}>
@@ -14598,8 +14648,8 @@ function IndexPopup() {
       
       const transakUrl = `https://global.transak.com/?${transakParams.toString()}`
       
-      // Open Transak in new tab
-      chrome.tabs.create({ url: transakUrl })
+      // PWA: Open Transak in new browser tab
+      window.open(transakUrl, '_blank')
     }
     
     return (
@@ -16201,14 +16251,16 @@ function IndexPopup() {
               onClick={() => {
                 const newValue = !degenMode;
                 setDegenMode(newValue);
-                // Save to storage and notify background
-                chrome.storage.sync.set({ 
-                  degen_settings: { 
-                    degenMode: newValue, 
-                    sniperShortcuts, 
-                    snipeAmounts 
-                  } 
-                });
+                // Save to storage and notify background - EXTENSION ONLY
+                if (isExtensionContext()) {
+                  chrome.storage.sync.set({ 
+                    degen_settings: { 
+                      degenMode: newValue, 
+                      sniperShortcuts, 
+                      snipeAmounts 
+                    } 
+                  });
+                }
               }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -16290,14 +16342,16 @@ function IndexPopup() {
               onClick={() => {
                 const newValue = !sniperShortcuts;
                 setSniperShortcuts(newValue);
-                // Save to storage and notify background
-                chrome.storage.sync.set({ 
-                  degen_settings: { 
-                    degenMode, 
-                    sniperShortcuts: newValue, 
-                    snipeAmounts 
-                  } 
-                });
+                // Save to storage and notify background - EXTENSION ONLY
+                if (isExtensionContext()) {
+                  chrome.storage.sync.set({ 
+                    degen_settings: { 
+                      degenMode, 
+                      sniperShortcuts: newValue, 
+                      snipeAmounts 
+                    } 
+                  });
+                }
               }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -16370,14 +16424,16 @@ function IndexPopup() {
                             const newAmounts = [...snipeAmounts] as [string, string, string, string];
                             newAmounts[index] = val;
                             setSnipeAmounts(newAmounts);
-                            // Save to storage
-                            chrome.storage.sync.set({ 
-                              degen_settings: { 
-                                degenMode, 
-                                sniperShortcuts, 
-                                snipeAmounts: newAmounts 
-                              } 
-                            });
+                            // Save to storage - EXTENSION ONLY
+                            if (isExtensionContext()) {
+                              chrome.storage.sync.set({ 
+                                degen_settings: { 
+                                  degenMode, 
+                                  sniperShortcuts, 
+                                  snipeAmounts: newAmounts 
+                                } 
+                              });
+                            }
                           }}
                           placeholder={`Amount ${index + 1}`}
                           style={{
@@ -19519,7 +19575,7 @@ function IndexPopup() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <img 
-              src={chrome.runtime.getURL('assets/arguslogo.png')} 
+              src={getAssetUrl('assets/arguslogo.png')} 
               alt="ARGUS" 
               style={{ width: 32, height: 32, objectFit: 'contain' }}
               onError={(e) => { e.currentTarget.style.display = 'none' }}
@@ -21719,7 +21775,7 @@ function IndexPopup() {
                         overflow: 'hidden'
                       }}>
                         {tx.type === 'vault-proposal' || tx.type === 'vault-execute' ? (
-                          <img src={chrome.runtime.getURL('assets/squads-logo.png')} alt="Squads" style={{ width: 24, height: 24, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+                          <img src={getAssetUrl('assets/squads-logo.png')} alt="Squads" style={{ width: 24, height: 24, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
                         ) : (
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={tx.type === 'swap' ? 'rgba(255, 255, 255, 0.7)' : tx.type === 'receive' ? '#10b981' : tx.type === 'send' ? '#ef4444' : '#fff'} strokeWidth="2">
                             {tx.type === 'swap' ? (
@@ -21829,7 +21885,7 @@ function IndexPopup() {
                 margin: '0 auto 12px'
               }}>
                 {selectedTransaction.type === 'vault-proposal' || selectedTransaction.type === 'vault-execute' ? (
-                  <img src={chrome.runtime.getURL('assets/squads-logo.png')} alt="Squads" style={{ width: 32, height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+                  <img src={getAssetUrl('assets/squads-logo.png')} alt="Squads" style={{ width: 32, height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
                 ) : (
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={selectedTransaction.type === 'swap' ? 'rgba(255, 255, 255, 0.7)' : selectedTransaction.type === 'receive' ? '#10b981' : selectedTransaction.type === 'send' ? '#ef4444' : '#fff'} strokeWidth="2">
                     {selectedTransaction.type === 'swap' ? (
@@ -21945,7 +22001,7 @@ function IndexPopup() {
                 border: '1px solid rgba(255, 255, 255, 0.05)'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <img src={chrome.runtime.getURL('assets/squads-logo.png')} alt="Squads" style={{ width: 16, height: 16, filter: 'brightness(0) invert(1)', opacity: 0.7 }} />
+                  <img src={getAssetUrl('assets/squads-logo.png')} alt="Squads" style={{ width: 16, height: 16, filter: 'brightness(0) invert(1)', opacity: 0.7 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255, 255, 255, 0.7)' }}>Powered by Squads</span>
                 </div>
                 <div style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.4)', lineHeight: 1.4 }}>

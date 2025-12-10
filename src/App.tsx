@@ -3038,18 +3038,41 @@ function IndexPopup() {
     // Store verified geo location - either from pre-verified or will be set during geo verification
     let verifiedGeoLocation: { latitude: number; longitude: number; accuracy?: number } | null = preVerifiedGeoLocation || null
 
-    // Determine which layers are enabled - USE PRE-ENABLED IF PROVIDED (critical for resume!)
-    // Otherwise calculate fresh from securitySettings
-    // NOTE: voice layer for transactions uses securitySettings.voiceLayerEnabled (separate from voiceUnlockEnabled which is for wallet unlock)
-    const enabledLayers = preEnabledLayers || {
-      voice: securitySettings?.voiceLayerEnabled || false,
-      geo: true, // Geo is always enabled for vault
-      usb: securitySettings?.usbEnabled || false,
-      bluetooth: securitySettings?.bluetoothEnabled || false,
-      wifi: securitySettings?.wifiEnabled || false,
-      biometric: securitySettings?.biometricEnabled || false
+    // =========================================================================
+    // CRITICAL SECURITY FIX: Always fetch FRESH security settings from the API
+    // before running any transaction verification. This ensures we get the 
+    // actual server-stored settings, not potentially stale/null React state.
+    // If the user is not found in the database, we MUST block the transaction!
+    // =========================================================================
+    let freshSecuritySettings = securitySettings
+    if (!preEnabledLayers) {
+      try {
+        console.log('[runSecurityVerification] Fetching FRESH security settings from API...')
+        freshSecuritySettings = await getSecuritySettings(wallet.publicKey.toBase58())
+        console.log('[runSecurityVerification] Fresh settings received:', JSON.stringify(freshSecuritySettings))
+        // Update React state with fresh settings
+        setSecuritySettings(freshSecuritySettings)
+      } catch (e: any) {
+        console.error('[runSecurityVerification] CRITICAL: Failed to fetch security settings from API:', e)
+        // SECURITY BLOCK: If we can't verify the user exists in the database,
+        // we MUST NOT allow the transaction to proceed!
+        setStatus("Security verification failed: Vault not registered. Please re-activate your vault.")
+        return false
+      }
     }
-    console.log('[runSecurityVerification] enabledLayers:', enabledLayers, preEnabledLayers ? '(from saved state)' : '(from settings)')
+
+    // Determine which layers are enabled - USE PRE-ENABLED IF PROVIDED (critical for resume!)
+    // Otherwise calculate fresh from the API-fetched settings
+    // NOTE: voice layer for transactions uses freshSecuritySettings.voiceLayerEnabled (separate from voiceUnlockEnabled which is for wallet unlock)
+    const enabledLayers = preEnabledLayers || {
+      voice: freshSecuritySettings?.voiceLayerEnabled || false,
+      geo: true, // Geo is always enabled for vault
+      usb: freshSecuritySettings?.usbEnabled || false,
+      bluetooth: freshSecuritySettings?.bluetoothEnabled || false,
+      wifi: freshSecuritySettings?.wifiEnabled || false,
+      biometric: freshSecuritySettings?.biometricEnabled || false
+    }
+    console.log('[runSecurityVerification] enabledLayers:', enabledLayers, preEnabledLayers ? '(from saved state)' : '(FRESH from API)')
 
     // Initialize completed layers - use pre-completed if provided
     const completedLayers = {
@@ -3181,11 +3204,11 @@ function IndexPopup() {
             
           case 'usb':
             console.log('[USB] Starting verification')
-            console.log('[USB] securitySettings?.usbEnabled:', securitySettings?.usbEnabled)
-            console.log('[USB] securitySettings?.usbDevice:', JSON.stringify(securitySettings?.usbDevice))
-            if (securitySettings?.usbEnabled && securitySettings?.usbDevice) {
+            console.log('[USB] freshSecuritySettings?.usbEnabled:', freshSecuritySettings?.usbEnabled)
+            console.log('[USB] freshSecuritySettings?.usbDevice:', JSON.stringify(freshSecuritySettings?.usbDevice))
+            if (freshSecuritySettings?.usbEnabled && freshSecuritySettings?.usbDevice) {
               console.log('[USB] Opening verification tab...')
-              const expectedDevice = securitySettings.usbDevice
+              const expectedDevice = freshSecuritySettings.usbDevice
               const requestId = Date.now().toString()
               
               // Save current state before opening tab (popup will close)
@@ -3212,7 +3235,7 @@ function IndexPopup() {
                   recipient,
                   activeWallet,
                   verifiedGeoLocation, // Save the geo location that was already verified
-                  securitySettings, // Save security settings for device info after resume
+                  securitySettings: freshSecuritySettings, // Save FRESH security settings for device info after resume
                   txVerificationModal: currentTxModal,
                   requestId,
                   timestamp: Date.now()
@@ -3288,7 +3311,7 @@ function IndexPopup() {
           case 'wifi':
             console.log('[WiFi/2FA Mobile] Starting verification, enabled:', enabledLayers.wifi)
             // Check for BSSID in both new format (wifiDevice.bssid) and old storage format (wifiBssid)
-            const expectedBssid = securitySettings?.wifiDevice?.bssid || (securitySettings as any)?.wifiBssid
+            const expectedBssid = freshSecuritySettings?.wifiDevice?.bssid || (freshSecuritySettings as any)?.wifiBssid
             console.log('[WiFi/2FA Mobile] Expected BSSID:', expectedBssid)
             
             if (enabledLayers.wifi) {

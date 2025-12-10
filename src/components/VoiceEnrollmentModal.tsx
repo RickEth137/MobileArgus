@@ -132,15 +132,15 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
     };
   }, []);
 
-  // Visualize audio
-  const visualizeAudio = useCallback(() => {
-    if (!analyserRef.current) return;
-    
-    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+  // Visualize audio - takes analyser as parameter to avoid stale ref issues
+  const startVisualization = useCallback((analyser: AnalyserNode) => {
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
     
     const draw = () => {
+      // Check if analyser is still valid
       if (!analyserRef.current) return;
-      analyserRef.current.getByteFrequencyData(dataArray);
+      
+      analyser.getByteFrequencyData(dataArray);
       
       const barCount = 24;
       const step = Math.floor(dataArray.length / barCount);
@@ -182,14 +182,23 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
         
         // Set up audio analysis for visualization
         audioContext = new AudioContext();
+        
+        // iOS requires resuming AudioContext after user interaction
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.3; // Make it more responsive
         const source = audioContext.createMediaStreamSource(stream);
         source.connect(analyser);
         analyserRef.current = analyser;
         
         setStatus('Recording... Speak now');
-        visualizeAudio();
+        
+        // Start visualization with the analyser directly
+        startVisualization(analyser);
         
         const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
         const chunks: Blob[] = [];
@@ -221,7 +230,7 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
         reject(e);
       }
     });
-  }, [visualizeAudio, resetWaveBars]);
+  }, [startVisualization, resetWaveBars]);
 
   // Process enrollment
   const processEnrollment = useCallback(async () => {
@@ -365,7 +374,8 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
       zIndex: 99999,
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'center'
+      justifyContent: 'center',
+      background: '#0a0a0c' // Solid dark background to block anything behind
     }}>
       {/* Video Background */}
       <video
@@ -381,7 +391,7 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
           height: '100%',
           objectFit: 'cover',
           zIndex: 0,
-          opacity: 0.6
+          opacity: 0.35
         }}
       >
         <source src="https://brown-traditional-sheep-998.mypinata.cloud/ipfs/bafybeicmrwektqnpcgast66rua3czhzwx2aasfncb6zdzysmnsfosewfw4" type="video/mp4" />
@@ -394,7 +404,7 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
         left: 0,
         width: '100%',
         height: '100%',
-        background: 'linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.7) 100%)',
+        background: 'radial-gradient(circle at 50% 35%, rgba(10,10,12,0.3) 0%, rgba(10,10,12,0.85) 50%, rgba(10,10,12,0.98) 100%)',
         zIndex: 1
       }} />
       

@@ -5109,7 +5109,7 @@ function IndexPopup() {
           color: 'rgba(255, 255, 255, 0.3)', 
           fontSize: 12
         }}>
-          v1.2.3 Mobile
+          v1.0.2 Mobile Beta
         </div>
 
         {/* Import Wallet Modal (for Import Existing Wallet button) */}
@@ -6927,7 +6927,7 @@ function IndexPopup() {
             color: 'rgba(255, 255, 255, 0.35)',
             fontWeight: 500
           }}>
-            v1.2.3
+            v1.0.2 Beta
           </div>
         </div>
 
@@ -22133,7 +22133,7 @@ function IndexPopup() {
           color: "rgba(255, 255, 255, 0.15)",
           padding: "12px 0 8px 0"
         }}>
-          V1.2.3 Mobile
+          v1.0.2 Mobile Beta
         </div>
     </div>
   )

@@ -8296,454 +8296,6 @@ function IndexPopup() {
             </div>
           </div>
 
-          {/* Dev Test Section */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 12
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(251, 191, 36, 0.6)" strokeWidth="2">
-                <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
-              </svg>
-              <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(251, 191, 36, 0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Dev Tools</span>
-            </div>
-
-            <div style={{
-              background: 'rgba(251, 191, 36, 0.05)',
-              border: '1px solid rgba(251, 191, 36, 0.2)',
-              borderRadius: 16,
-              padding: 16
-            }}>
-              <div style={{ fontSize: 11, color: 'rgba(251, 191, 36, 0.7)', marginBottom: 12 }}>
-                Test UI flows without creating actual vaults
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button 
-                  style={{
-                    flex: 1,
-                    minWidth: 90,
-                    padding: '10px 12px',
-                    background: 'rgba(251, 191, 36, 0.1)',
-                    border: '1px solid rgba(251, 191, 36, 0.3)',
-                    borderRadius: 10,
-                    color: '#fbbf24',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={testVaultRules}
-                >
-                  Test Rules
-                </button>
-                <button 
-                  style={{
-                    flex: 1,
-                    minWidth: 90,
-                    padding: '10px 12px',
-                    background: 'rgba(251, 191, 36, 0.1)',
-                    border: '1px solid rgba(251, 191, 36, 0.3)',
-                    borderRadius: 10,
-                    color: '#fbbf24',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={testGlobeLoading}
-                >
-                  Test Globe
-                </button>
-                <button 
-                  style={{
-                    flex: 1,
-                    minWidth: 90,
-                    padding: '10px 12px',
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                    borderRadius: 10,
-                    color: '#10b981',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test the Transaction Verification Modal (2 layers)
-                    setTxVerificationModal({
-                      show: true,
-                      enabledLayers: { voice: false, geo: true, usb: true, bluetooth: false, wifi: false, biometric: false },
-                      completedLayers: { voice: false, geo: false, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      currentLayer: 'geo',
-                      error: null,
-                      pendingUserAction: false,
-                      txData: { type: 'send', amount: '2.5', token: 'SOL', recipient: '7xKX...3dFa' }
-                    })
-                    // Simulate progress through layers
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, geo: true },
-                        currentLayer: 'usb'
-                      }))
-                    }, 2000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, usb: true },
-                        currentLayer: 'proposal'
-                      }))
-                    }, 4000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'approval'
-                      }))
-                    }, 5500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'execute'
-                      }))
-                    }, 7000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'done'
-                      }))
-                    }, 8500)
-                  }}
-                >
-                  Test TX Flow
-                </button>
-              </div>
-              {/* Second row of test buttons */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button 
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: 'rgba(139, 92, 246, 0.1)',
-                    border: '1px solid rgba(139, 92, 246, 0.3)',
-                    borderRadius: 10,
-                    color: '#8b5cf6',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test with ALL 6 layers enabled
-                    setTxVerificationModal({
-                      show: true,
-                      enabledLayers: { voice: true, geo: true, usb: true, bluetooth: true, wifi: true, biometric: true },
-                      completedLayers: { voice: false, geo: false, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      currentLayer: 'voice',
-                      error: null,
-                      pendingUserAction: false,
-                      txData: { type: 'swap', amount: '100', token: 'USDC', toToken: 'SOL' }
-                    })
-                    // Simulate progress through all 6 layers
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, voice: true },
-                        currentLayer: 'geo'
-                      }))
-                    }, 1500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, geo: true },
-                        currentLayer: 'usb'
-                      }))
-                    }, 3000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, usb: true },
-                        currentLayer: 'bluetooth'
-                      }))
-                    }, 4500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, bluetooth: true },
-                        currentLayer: 'biometric'
-                      }))
-                    }, 6000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, biometric: true },
-                        currentLayer: 'proposal'
-                      }))
-                    }, 7500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'approval'
-                      }))
-                    }, 9000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'execute'
-                      }))
-                    }, 10500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'done'
-                      }))
-                    }, 12000)
-                  }}
-                >
-                  Test All Layers
-                </button>
-                <button 
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: 'rgba(59, 130, 246, 0.1)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    borderRadius: 10,
-                    color: '#3b82f6',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test with ONLY geo (minimum case)
-                    setTxVerificationModal({
-                      show: true,
-                      enabledLayers: { voice: false, geo: true, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      completedLayers: { voice: false, geo: false, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      currentLayer: 'geo',
-                      error: null,
-                      pendingUserAction: false,
-                      txData: { type: 'send', amount: '0.5', token: 'SOL', recipient: '3kDx...aBcD' }
-                    })
-                    // Simulate progress
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, geo: true },
-                        currentLayer: 'proposal'
-                      }))
-                    }, 2000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'approval'
-                      }))
-                    }, 3500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'execute'
-                      }))
-                    }, 5000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'done'
-                      }))
-                    }, 6500)
-                  }}
-                >
-                  Test Geo Only
-                </button>
-              </div>
-              {/* Third row - Test Voice */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button 
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: 'rgba(236, 72, 153, 0.1)',
-                    border: '1px solid rgba(236, 72, 153, 0.3)',
-                    borderRadius: 10,
-                    color: '#ec4899',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test with Voice + Geo
-                    setTxVerificationModal({
-                      show: true,
-                      enabledLayers: { voice: true, geo: true, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      completedLayers: { voice: false, geo: false, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      currentLayer: 'voice',
-                      error: null,
-                      pendingUserAction: false
-                    })
-                    // Simulate progress
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, voice: true },
-                        currentLayer: 'geo'
-                      }))
-                    }, 2000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, geo: true },
-                        currentLayer: 'proposal'
-                      }))
-                    }, 3500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'approval'
-                      }))
-                    }, 5000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'execute'
-                      }))
-                    }, 6500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'done'
-                      }))
-                    }, 8000)
-                  }}
-                >
-                  Test Voice + Geo
-                </button>
-                <button 
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: 'rgba(245, 158, 11, 0.1)',
-                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                    borderRadius: 10,
-                    color: '#f59e0b',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test with Biometric + USB
-                    setTxVerificationModal({
-                      show: true,
-                      enabledLayers: { voice: false, geo: false, usb: true, bluetooth: false, wifi: false, biometric: true },
-                      completedLayers: { voice: false, geo: false, usb: false, bluetooth: false, wifi: false, biometric: false },
-                      currentLayer: 'usb',
-                      error: null,
-                      pendingUserAction: false
-                    })
-                    // Simulate progress
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, usb: true },
-                        currentLayer: 'biometric'
-                      }))
-                    }, 2000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        completedLayers: { ...prev.completedLayers, biometric: true },
-                        currentLayer: 'proposal'
-                      }))
-                    }, 3500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'approval'
-                      }))
-                    }, 5000)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'execute'
-                      }))
-                    }, 6500)
-                    setTimeout(() => {
-                      setTxVerificationModal(prev => ({
-                        ...prev,
-                        currentLayer: 'done'
-                      }))
-                    }, 8000)
-                  }}
-                >
-                  Test USB + Bio
-                </button>
-              </div>
-              {/* Fourth row - Test Simple Modal (Master Wallet) */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button 
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: 10,
-                    color: '#fff',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test Simple Modal for Master Wallet - SEND
-                    setSimpleTxModal({
-                      show: true,
-                      type: 'send',
-                      amount: '1.5',
-                      token: 'SOL',
-                      recipient: '7xKX...3dFa',
-                      status: 'confirm',
-                      onConfirm: async () => {
-                        setSimpleTxModal(prev => ({ ...prev, status: 'processing' }))
-                        setTimeout(() => {
-                          setSimpleTxModal(prev => ({ ...prev, status: 'success' }))
-                        }, 2000)
-                      }
-                    })
-                  }}
-                >
-                  Simple Send
-                </button>
-                <button 
-                  style={{
-                    flex: 1,
-                    padding: '10px 12px',
-                    background: 'rgba(168, 85, 247, 0.1)',
-                    border: '1px solid rgba(168, 85, 247, 0.3)',
-                    borderRadius: 10,
-                    color: '#a855f7',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => {
-                    // Test Simple Modal for Master Wallet - SWAP
-                    setSimpleTxModal({
-                      show: true,
-                      type: 'swap',
-                      amount: '50',
-                      token: 'USDC',
-                      toToken: 'SOL',
-                      status: 'confirm',
-                      onConfirm: async () => {
-                        setSimpleTxModal(prev => ({ ...prev, status: 'processing' }))
-                        setTimeout(() => {
-                          setSimpleTxModal(prev => ({ ...prev, status: 'success' }))
-                        }, 2000)
-                      }
-                    })
-                  }}
-                >
-                  Simple Swap
-                </button>
-              </div>
-            </div>
-          </div>
-
           {/* About */}
           <div style={{
             background: 'rgba(255, 255, 255, 0.02)',
@@ -13626,7 +13178,8 @@ function IndexPopup() {
           display: 'flex',
           alignItems: 'center',
           padding: '16px 20px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          flexShrink: 0
         }}>
           <button 
             onClick={() => setSendStep("select")}
@@ -13642,28 +13195,30 @@ function IndexPopup() {
           <div style={{ width: 28 }} />
         </div>
 
-        {/* Token Icon */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0 16px' }}>
-          <div style={{
-            width: 64,
-            height: 64,
-            borderRadius: 16,
-            background: 'rgba(255, 255, 255, 0.05)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
-          }}>
-            {selectedToken?.logoURI ? (
-              <img src={selectedToken.logoURI} alt={selectedToken.symbol} style={{ width: 40, height: 40, borderRadius: 10 }} />
-            ) : (
-              <span style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{selectedToken?.symbol.slice(0, 2)}</span>
-            )}
+        {/* Scrollable Content */}
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {/* Token Icon */}
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0 16px', flexShrink: 0 }}>
+            <div style={{
+              width: 64,
+              height: 64,
+              borderRadius: 16,
+              background: 'rgba(255, 255, 255, 0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+            }}>
+              {selectedToken?.logoURI ? (
+                <img src={selectedToken.logoURI} alt={selectedToken.symbol} style={{ width: 40, height: 40, borderRadius: 10 }} />
+              ) : (
+                <span style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>{selectedToken?.symbol.slice(0, 2)}</span>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Form */}
-        <div style={{ padding: '0 20px', flex: 1 }}>
+          {/* Form */}
+          <div style={{ padding: '0 20px', flexShrink: 0 }}>
           {/* Recipient Input */}
           <div style={{
             background: 'rgba(255, 255, 255, 0.03)',
@@ -13791,9 +13346,10 @@ function IndexPopup() {
             </div>
           )}
         </div>
+        </div>
 
         {/* Footer Buttons */}
-        <div style={{ padding: '16px 20px', display: 'flex', gap: 12 }}>
+        <div style={{ padding: '16px 20px', display: 'flex', gap: 12, flexShrink: 0, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
           <button
             onClick={() => { setSendStep("select"); setSelectedToken(null); setAmount(""); setRecipient(""); }}
             style={{
@@ -16637,7 +16193,8 @@ function IndexPopup() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '16px 20px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          flexShrink: 0
         }}>
           <button 
             onClick={() => setSwapShowSettings(true)}
@@ -17253,7 +16810,7 @@ function IndexPopup() {
         </div>
 
         {/* Swap Button */}
-        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', flexShrink: 0 }}>
           <button
             disabled={!swapFromToken || !swapToToken || !swapAmount || parseFloat(swapAmount) <= 0 || !swapQuote || (swapFromToken && swapFromToken.amount !== undefined && parseFloat(swapAmount) > swapFromToken.amount) || insufficientForFees || swapExecuting}
             onClick={handleExecuteSwap}

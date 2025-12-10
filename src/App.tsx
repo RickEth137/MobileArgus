@@ -135,12 +135,19 @@ interface WalletAccount {
 const isMobileWeb = typeof window !== 'undefined' && !window.chrome?.runtime?.id;
 console.log('[Styles] isMobileWeb:', isMobileWeb, 'chrome.runtime?.id:', (window as any).chrome?.runtime?.id);
 
+// Detect if user is on a mobile device
+const isMobileDevice = typeof window !== 'undefined' && (
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  (navigator.maxTouchPoints && navigator.maxTouchPoints > 2)
+);
+console.log('[Device] isMobileDevice:', isMobileDevice);
+
 const styles = {
   container: {
     width: '100vw',
     maxWidth: '100vw',
-    minHeight: '100vh',
-    height: '100vh',
+    minHeight: '100dvh',
+    height: '100dvh',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
     backgroundColor: '#121216',
     color: '#fff',
@@ -153,7 +160,8 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    fontSize: 16 // Base font size for mobile
+    fontSize: 16, // Base font size for mobile
+    paddingBottom: 'env(safe-area-inset-bottom, 0px)'
   },
   header: {
     display: 'flex',
@@ -554,8 +562,8 @@ function IndexPopup() {
   // Dynamic container style - always full height for mobile web
   const containerStyle = {
     ...styles.container,
-    height: '100vh',
-    minHeight: '100vh'
+    height: '100dvh',
+    minHeight: '100dvh'
   };
 
   const [walletStatus, setWalletStatus] = useState<{ isOnboarded: boolean; isLocked: boolean } | null>(null)
@@ -3700,6 +3708,223 @@ function IndexPopup() {
   // Show unlock screen if wallet is locked
   if (walletStatus?.isLocked) {
     return <UnlockScreen onUnlock={handleUnlock} />
+  }
+
+  // Show desktop-only message if NOT on a mobile device
+  if (!isMobileDevice) {
+    return (
+      <div className="app-container" style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+        textAlign: 'center',
+        background: '#121216',
+        minHeight: '100vh'
+      }}>
+        {/* CSS Keyframes for orbit animation */}
+        <style>
+          {`
+            @keyframes desktopOrbitRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            @keyframes desktopOrbitRotateReverse { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+            @keyframes desktopCounterRotate { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+            @keyframes desktopCounterRotateReverse { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+          `}
+        </style>
+        
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+        
+        {/* Animated Logo with orbits */}
+        <div style={{ 
+          position: 'relative', 
+          width: 200, 
+          height: 200, 
+          marginBottom: 40,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          {/* Logo */}
+          <div style={{
+            width: 80,
+            height: 80,
+            borderRadius: 20,
+            background: 'rgba(255, 255, 255, 0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            zIndex: 2
+          }}>
+            <img 
+              src="/assets/arguslogo.png"
+              alt="ARGUS"
+              style={{ width: 48, height: 48, objectFit: 'contain' }}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+          
+          {/* Inner orbit ring */}
+          <div style={{
+            position: 'absolute',
+            width: 130,
+            height: 130,
+            borderRadius: '50%',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }} />
+          
+          {/* Outer orbit ring */}
+          <div style={{
+            position: 'absolute',
+            width: 190,
+            height: 190,
+            borderRadius: '50%',
+            border: '1px solid rgba(255, 255, 255, 0.05)'
+          }} />
+          
+          {/* Inner rotating orbit with dots */}
+          <div style={{ 
+            position: 'absolute', 
+            width: 130, 
+            height: 130, 
+            borderRadius: '50%', 
+            animation: 'desktopOrbitRotate 20s linear infinite'
+          }}>
+            {[0, 120, 240].map((angle, i) => {
+              const colors = ['#8b5cf6', '#3b82f6', '#10b981'];
+              const rad = (angle * Math.PI) / 180;
+              const x = 65 + 65 * Math.sin(rad);
+              const y = 65 - 65 * Math.cos(rad);
+              return (
+                <div key={i} style={{
+                  position: 'absolute',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: colors[i],
+                  left: x - 4,
+                  top: y - 4,
+                  boxShadow: `0 0 10px ${colors[i]}`,
+                  animation: 'desktopCounterRotate 20s linear infinite'
+                }} />
+              );
+            })}
+          </div>
+          
+          {/* Outer rotating orbit with dots (reverse) */}
+          <div style={{ 
+            position: 'absolute', 
+            width: 190, 
+            height: 190, 
+            borderRadius: '50%', 
+            animation: 'desktopOrbitRotateReverse 30s linear infinite'
+          }}>
+            {[45, 135, 225, 315].map((angle, i) => {
+              const colors = ['#f59e0b', '#ec4899', '#06b6d4', '#6366f1'];
+              const rad = (angle * Math.PI) / 180;
+              const x = 95 + 95 * Math.sin(rad);
+              const y = 95 - 95 * Math.cos(rad);
+              return (
+                <div key={i} style={{
+                  position: 'absolute',
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: colors[i],
+                  left: x - 3,
+                  top: y - 3,
+                  boxShadow: `0 0 8px ${colors[i]}`,
+                  opacity: 0.7,
+                  animation: 'desktopCounterRotateReverse 30s linear infinite'
+                }} />
+              );
+            })}
+          </div>
+        </div>
+        
+        <h1 style={{ 
+          fontSize: 28, 
+          fontWeight: 700, 
+          color: '#fff', 
+          marginBottom: 16, 
+          marginTop: 0
+        }}>
+          Mobile Only
+        </h1>
+        
+        <p style={{ 
+          fontSize: 15, 
+          color: 'rgba(255, 255, 255, 0.5)', 
+          marginBottom: 32, 
+          marginTop: 0,
+          lineHeight: 1.7, 
+          maxWidth: 360,
+          padding: '0 20px'
+        }}>
+          ARGUS Mobile is designed exclusively for smartphones and tablets. 
+          For desktop and laptop use, please install our browser extension.
+        </p>
+        
+        {/* Extension Download Button */}
+        <a
+          href="https://argus.foundation"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            padding: '16px 32px',
+            background: '#fff',
+            border: 'none',
+            borderRadius: 14,
+            color: '#000',
+            fontSize: 15,
+            fontWeight: 600,
+            textDecoration: 'none',
+            cursor: 'pointer',
+            marginBottom: 16
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download Extension
+        </a>
+        
+        <p style={{ 
+          fontSize: 12, 
+          color: 'rgba(255, 255, 255, 0.3)', 
+          marginTop: 8
+        }}>
+          Available for Chrome, Brave & Edge
+        </p>
+        
+        {/* Spacer */}
+        <div style={{ flex: 1.3 }} />
+        
+        {/* Footer */}
+        <div style={{ 
+          fontSize: 11, 
+          color: 'rgba(255, 255, 255, 0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6
+        }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Secured by ARGUS Protocol
+        </div>
+      </div>
+    );
   }
 
   // Wait for storage to be fully loaded before showing anything
@@ -13349,7 +13574,7 @@ function IndexPopup() {
         </div>
 
         {/* Footer Buttons */}
-        <div style={{ padding: '16px 20px', display: 'flex', gap: 12, flexShrink: 0, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+        <div style={{ padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', display: 'flex', gap: 12, flexShrink: 0, borderTop: '1px solid rgba(255, 255, 255, 0.06)', background: '#121216' }}>
           <button
             onClick={() => { setSendStep("select"); setSelectedToken(null); setAmount(""); setRecipient(""); }}
             style={{
@@ -16810,7 +17035,7 @@ function IndexPopup() {
         </div>
 
         {/* Swap Button */}
-        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255, 255, 255, 0.06)', flexShrink: 0 }}>
+        <div style={{ padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))', borderTop: '1px solid rgba(255, 255, 255, 0.06)', flexShrink: 0, background: '#121216' }}>
           <button
             disabled={!swapFromToken || !swapToToken || !swapAmount || parseFloat(swapAmount) <= 0 || !swapQuote || (swapFromToken && swapFromToken.amount !== undefined && parseFloat(swapAmount) > swapFromToken.amount) || insufficientForFees || swapExecuting}
             onClick={handleExecuteSwap}

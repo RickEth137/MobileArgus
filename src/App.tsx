@@ -54,6 +54,16 @@ import {
   type PriceImpactLevel,
   type UltraSwapOrder,
 } from "./utils/swap"
+import { 
+  executeGhostTransfer, 
+  getGhostTransferInfo, 
+  getGhostTransferExplanation,
+  isGhostTransferAvailable,
+  getGhostBalance,
+  estimateGhostFee,
+  type GhostBalance,
+  type GhostTransferResult
+} from "./utils/ghost-transfer"
 
 // WebUSB type declarations
 interface USBDevice {
@@ -75,6 +85,66 @@ declare global {
   interface Navigator {
     usb?: USB
   }
+}
+
+// Chrome storage type interfaces for extension-only features
+interface EnabledLayers {
+  voice: boolean
+  geo: boolean
+  usb: boolean
+  bluetooth: boolean
+  wifi: boolean
+  biometric: boolean
+}
+
+interface PendingTxState {
+  timestamp: number
+  requestId: string
+  view: string
+  sendStep: string
+  activeWallet: string
+  selectedToken?: any
+  amount?: string
+  recipient?: string
+  txVerificationModal?: {
+    completedLayers?: Record<string, boolean>
+    enabledLayers?: EnabledLayers
+  }
+  securitySettings?: any
+  verifiedGeoLocation?: {
+    latitude: number
+    longitude: number
+    accuracy?: number
+  }
+}
+
+interface VerifyResult {
+  requestId: string
+  timestamp: number
+  success: boolean
+  error?: string
+}
+
+interface DegenSettings {
+  degenMode?: boolean
+  sniperShortcuts?: boolean
+  snipeAmounts?: [string, string, string, string]
+}
+
+interface SnipeRequest {
+  tokenAddress: string
+  amount: string
+  timestamp: number
+}
+
+interface QuickTradeRequest {
+  tokenAddress: string
+  timestamp: number
+}
+
+interface OpenVaultData {
+  publicKey: string
+  timestamp: number
 }
 
 // Minimum SOL to reserve for transaction fees when swapping SOL
@@ -598,7 +668,7 @@ function IndexPopup() {
     checkLockStatus();
   }, []);
   
-  const [view, setView] = useState<"seed" | "main" | "settings" | "import" | "send" | "receive" | "swap" | "degen" | "buy" | "activity" | "vault_rules" | "activation_disclosure" | "activation_loading" | "manage-wallets" | "edit-wallet" | "token-detail" | "address-book">("main")
+  const [view, setView] = useState<"seed" | "main" | "settings" | "import" | "send" | "receive" | "swap" | "degen" | "buy" | "activity" | "vault_rules" | "activation_disclosure" | "activation_loading" | "manage-wallets" | "edit-wallet" | "token-detail" | "address-book" | "create">("main")
   const [wallet, setWallet] = useState<Keypair | null>(null)
   const [selectedToken, setSelectedToken] = useState<TokenData | null>(null)
   const [tokenDetailLoading, setTokenDetailLoading] = useState(false)
@@ -620,6 +690,13 @@ function IndexPopup() {
   const [lastTxTime, setLastTxTime] = useState<number | null>(null)
   const [receiveSelectedToken, setReceiveSelectedToken] = useState<TokenData | null>(null)
   const [tokenSearchQuery, setTokenSearchQuery] = useState("")
+  // Ghost Transfer (Confidential Transfer) state
+  const [ghostModeEnabled, setGhostModeEnabled] = useState(false)
+  const [ghostModeInfo, setGhostModeInfo] = useState<{ supported: boolean; available: boolean; reason: string } | null>(null)
+  const [showGhostInfoModal, setShowGhostInfoModal] = useState(false)
+  const [ghostBalance, setGhostBalance] = useState<GhostBalance | null>(null)
+  const [ghostTransferProgress, setGhostTransferProgress] = useState<{ step: string; message: string } | null>(null)
+  const [ghostFeeEstimate, setGhostFeeEstimate] = useState<{ fee: number; feeFormatted: string } | null>(null)
   // Swap state
   const [swapFromToken, setSwapFromToken] = useState<TokenData | null>(null)
   const [swapToToken, setSwapToToken] = useState<{ mint: string; symbol: string; name: string; logoURI?: string; decimals?: number; bannerURI?: string; price?: number; marketCap?: number; liquidity?: number; volume24h?: number; priceChange24h?: number; dexId?: string; socials?: { twitter?: string; telegram?: string; discord?: string; website?: string } } | null>(null)
@@ -783,7 +860,7 @@ function IndexPopup() {
   const [activeAccountIndex, setActiveAccountIndex] = useState(0)
   const [isAddingWallet, setIsAddingWallet] = useState(false)
   const [showAddWalletModal, setShowAddWalletModal] = useState(false)
-  const [addWalletView, setAddWalletView] = useState<"menu" | "import-seed" | "import-pk" | "create" | "track">("menu")
+  const [addWalletView, setAddWalletView] = useState<"menu" | "import-seed" | "import-pk" | "create" | "track" | "import">("menu")
   const [importInput, setImportInput] = useState("")
   const [trackAddressInput, setTrackAddressInput] = useState("")
   const [newWalletName, setNewWalletName] = useState("")
@@ -948,6 +1025,7 @@ function IndexPopup() {
     mode: 'enroll' | 'verify' | 'verify-to-disable' | 'verify-for-tx'
     walletAddress: string
     enrolledFingerprint?: string
+    onPasswordFallback?: () => void
   }>({
     show: false,
     mode: 'enroll',
@@ -1055,7 +1133,7 @@ function IndexPopup() {
   // Load wallet accounts from storage
   const [storedAccounts, setStoredAccounts] = useStorage<WalletAccount[]>("wallet_accounts")
   const [storedActiveIndex, setStoredActiveIndex] = useStorage<number>("active_account_index")
-  const [storedUsername] = useStorage<string>("username")
+  const [storedUsername, setStoredUsername] = useStorage<string>("username")
 
   // Restore pending transaction state on mount (from chrome.storage.local for immediate access)
   // State to hold pre-completed verification layers (for resuming after USB/Bluetooth tab)
@@ -1069,9 +1147,7 @@ function IndexPopup() {
   } | null>(null)
   
   // Store enabled layers for resuming after USB/Bluetooth verification
-  const [pendingEnabledLayers, setPendingEnabledLayers] = useState<{
-    voice: boolean; geo: boolean; usb: boolean; bluetooth: boolean; wifi: boolean; biometric: boolean
-  } | null>(null)
+  const [pendingEnabledLayers, setPendingEnabledLayers] = useState<EnabledLayers | null>(null)
   
   // Flag to trigger automatic transaction continuation
   const [shouldContinueTransaction, setShouldContinueTransaction] = useState(false)
@@ -1089,9 +1165,9 @@ function IndexPopup() {
     
     console.log('[Popup] Checking for pending transaction state on mount...')
     chrome.storage.local.get(['pending_tx_state', 'usb_verify_result', 'bluetooth_verify_result']).then(async (result) => {
-      const pendingState = result.pending_tx_state
-      const usbResult = result.usb_verify_result
-      const bluetoothResult = result.bluetooth_verify_result
+      const pendingState = result.pending_tx_state as PendingTxState | undefined
+      const usbResult = result.usb_verify_result as VerifyResult | undefined
+      const bluetoothResult = result.bluetooth_verify_result as VerifyResult | undefined
       
       console.log('[Popup] Storage check - pendingState:', !!pendingState, 'usbResult:', !!usbResult, 'bluetoothResult:', !!bluetoothResult)
       
@@ -1239,7 +1315,7 @@ function IndexPopup() {
     
     chrome.storage.sync.get('degen_settings').then((result) => {
       if (result.degen_settings) {
-        const settings = result.degen_settings;
+        const settings = result.degen_settings as DegenSettings;
         if (typeof settings.degenMode === 'boolean') setDegenMode(settings.degenMode);
         if (typeof settings.sniperShortcuts === 'boolean') setSniperShortcuts(settings.sniperShortcuts);
         if (Array.isArray(settings.snipeAmounts) && settings.snipeAmounts.length === 4) {
@@ -1266,8 +1342,9 @@ function IndexPopup() {
     
     // Check if we were opened via snipe context menu
     chrome.storage.local.get('snipe_request').then((result) => {
-      if (result.snipe_request && Date.now() - result.snipe_request.timestamp < 30000) {
-        const { tokenAddress, amount: snipeAmount } = result.snipe_request;
+      const snipeRequest = result.snipe_request as SnipeRequest | undefined
+      if (snipeRequest && Date.now() - snipeRequest.timestamp < 30000) {
+        const { tokenAddress, amount: snipeAmount } = snipeRequest;
         console.log('[Snipe] Received snipe request:', tokenAddress, snipeAmount);
         
         // Clear the request
@@ -1295,8 +1372,9 @@ function IndexPopup() {
     
     // Check if we were opened via Quick Trade context menu
     chrome.storage.local.get('quick_trade_request').then(async (result) => {
-      if (result.quick_trade_request && Date.now() - result.quick_trade_request.timestamp < 30000) {
-        const { tokenAddress } = result.quick_trade_request;
+      const quickTradeRequest = result.quick_trade_request as QuickTradeRequest | undefined
+      if (quickTradeRequest && Date.now() - quickTradeRequest.timestamp < 30000) {
+        const { tokenAddress } = quickTradeRequest;
         console.log('[QuickTrade] Received quick trade request:', tokenAddress);
         
         // Clear the request
@@ -1804,7 +1882,7 @@ function IndexPopup() {
       chrome.storage.local.get('openVaultAfterSetup').then(async (result) => {
         console.log('[Setup] Storage result:', result)
         
-        const data = result.openVaultAfterSetup
+        const data = result.openVaultAfterSetup as OpenVaultData | undefined
         if (data && data.publicKey && (Date.now() - data.timestamp) < 60000) {
           console.log('[Setup] Found valid vault to open:', data.publicKey)
           console.log('[Setup] Timestamp age:', Date.now() - data.timestamp, 'ms')
@@ -3718,6 +3796,67 @@ function IndexPopup() {
     try {
       console.log('[handleTransfer] Starting transfer, activeWallet:', activeWallet)
       if (activeWallet === "master") {
+          // Check if Ghost Mode is enabled
+          if (ghostModeEnabled) {
+            // Ghost Transfer - Private/Anonymous transfer via Privacy Cash
+            setIsLoading(true)
+            setStatus("Preparing ghost transfer...")
+            setGhostTransferProgress({ step: 'checking', message: 'Initializing...' })
+            
+            const txStartTime = Date.now()
+            const isUsdc = selectedToken?.mint === "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            const amountInBaseUnits = isUsdc 
+              ? Math.round(parseFloat(amount) * 1_000_000) // USDC: 6 decimals
+              : Math.round(parseFloat(amount) * 1e9) // SOL: 9 decimals (lamports)
+            
+            try {
+              const result = await executeGhostTransfer({
+                fromWallet: wallet,
+                toAddress: recipient,
+                amount: amountInBaseUnits,
+                isUsdc,
+                onProgress: (step, message) => {
+                  console.log('[GhostTransfer] Progress:', step, message)
+                  setGhostTransferProgress({ step, message })
+                  setStatus(message)
+                }
+              })
+              
+              if (result.success) {
+                const txEndTime = Date.now()
+                setLastTxTime((txEndTime - txStartTime) / 1000)
+                
+                // Add recipient to recent addresses
+                const savedRecipient = addressBook.find(a => a.address === recipient)
+                const existingIndex = recentAddresses.findIndex(a => a.address === recipient)
+                const newRecentAddress: SavedAddress = {
+                  address: recipient,
+                  label: savedRecipient?.label || '',
+                  lastUsed: Date.now()
+                }
+                if (existingIndex >= 0) {
+                  setRecentAddresses(prev => prev.map((a, i) => i === existingIndex ? newRecentAddress : a))
+                } else {
+                  setRecentAddresses(prev => [newRecentAddress, ...prev].slice(0, 10))
+                }
+                
+                setLastTxSignature(result.signature || null)
+                setSendStep("success")
+                setStatus("")
+                setGhostModeEnabled(false) // Reset for next transfer
+              } else {
+                throw new Error(result.error || "Ghost transfer failed")
+              }
+            } catch (ghostError: any) {
+              console.error('[GhostTransfer] Error:', ghostError)
+              setStatus("Ghost transfer failed: " + ghostError.message)
+            } finally {
+              setIsLoading(false)
+              setGhostTransferProgress(null)
+            }
+            return
+          }
+          
           // Master wallet - simple send (no security layers)
           setIsLoading(true)
           setStatus("Sending...")
@@ -4252,6 +4391,7 @@ function IndexPopup() {
           mode={voiceEnrollmentModal.mode}
           walletAddress={voiceEnrollmentModal.walletAddress}
           enrolledFingerprint={voiceEnrollmentModal.enrolledFingerprint}
+          onPasswordFallback={voiceEnrollmentModal.onPasswordFallback}
           onComplete={async (result) => {
             setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
             
@@ -10726,6 +10866,7 @@ function IndexPopup() {
           mode={voiceEnrollmentModal.mode}
           walletAddress={voiceEnrollmentModal.walletAddress}
           enrolledFingerprint={voiceEnrollmentModal.enrolledFingerprint}
+          onPasswordFallback={voiceEnrollmentModal.onPasswordFallback}
           onComplete={async (result) => {
             setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
             
@@ -11475,7 +11616,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable 2FA Mobile',
-                      message: 'Enter this wallet\'s password to disable 2FA Mobile verification.',
+                      message: 'Enter your vault password to disable 2FA Mobile verification.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11528,7 +11669,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up 2FA Mobile',
-                      message: 'Enter this wallet\'s password to configure mobile 2FA verification.',
+                      message: 'Enter your vault password to configure mobile 2FA verification.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -11638,7 +11779,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable Bluetooth',
-                      message: 'Enter this wallet\'s password to disable Bluetooth security layer.',
+                      message: 'Enter your vault password to disable Bluetooth security layer.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11757,7 +11898,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Disable USB Key',
-                      message: 'Enter this wallet\'s password to disable USB key security layer.',
+                      message: 'Enter your vault password to disable USB key security layer.',
                       confirmText: 'Disable',
                       danger: true,
                       requirePassword: true,
@@ -11870,25 +12011,70 @@ function IndexPopup() {
                   if (updatingSecurityLayer) return
                   
                   if (securitySettings?.biometricEnabled) {
-                    // Disable Biometric - verify with biometric itself (not password)
+                    // Disable Biometric - try to verify with biometric, fallback to password
                     setUpdatingSecurityLayer('biometric')
                     try {
-                      const { verifyBiometric, removeBiometric } = await import('./utils/native-biometric')
+                      const { verifyBiometric, removeBiometric, isBiometricEnrolled } = await import('./utils/native-biometric')
                       
-                      // Verify with Face ID/Touch ID before disabling
-                      const verifyResult = await verifyBiometric(editingWallet.publicKey)
+                      // Check if biometric is enrolled locally (may not be if wallet was imported)
+                      const isEnrolledLocally = isBiometricEnrolled(editingWallet.publicKey)
                       
-                      if (verifyResult.success) {
-                        // Biometric verified - now disable it
-                        removeBiometric(editingWallet.publicKey)
-                        await updateSecurityLayer(editingWallet.publicKey, 'biometric', false)
-                        setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: false, biometricCredentialId: null } : null)
-                        setSuccessModal({ show: true, deviceName: 'Biometric', type: 'disabled', deviceType: 'biometric' })
-                        setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                      if (isEnrolledLocally) {
+                        // Verify with Face ID/Touch ID before disabling
+                        const verifyResult = await verifyBiometric(editingWallet.publicKey)
+                        
+                        if (verifyResult.success) {
+                          // Biometric verified - now disable it
+                          removeBiometric(editingWallet.publicKey)
+                          await updateSecurityLayer(editingWallet.publicKey, 'biometric', false)
+                          setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: false, biometricCredentialId: null } : null)
+                          setSuccessModal({ show: true, deviceName: 'Biometric', type: 'disabled', deviceType: 'biometric' })
+                          setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                        } else {
+                          // Verification failed or cancelled
+                          setStatus(verifyResult.error || 'Biometric verification failed')
+                          setTimeout(() => setStatus(''), 3000)
+                        }
                       } else {
-                        // Verification failed or cancelled
-                        setStatus(verifyResult.error || 'Biometric verification failed')
-                        setTimeout(() => setStatus(''), 3000)
+                        // Biometric enabled on server but not enrolled locally (imported wallet)
+                        // Fall back to password verification
+                        setUpdatingSecurityLayer(null)
+                        setConfirmPassword("")
+                        setConfirmPasswordError("")
+                        setConfirmModal({
+                          show: true,
+                          title: 'Disable Biometric',
+                          message: 'Biometric was set up on another device. Enter your vault password to disable it.',
+                          confirmText: 'Disable',
+                          danger: true,
+                          requirePassword: true,
+                          onConfirm: async (password?: string) => {
+                            if (!password) {
+                              setConfirmPasswordError("Password is required")
+                              return
+                            }
+                            try {
+                              const response = await verifyServerPassword(editingWallet.publicKey, password)
+                              if (!response.success) {
+                                setConfirmPasswordError("Incorrect password")
+                                return
+                              }
+                              
+                              setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
+                              setUpdatingSecurityLayer('biometric')
+                              
+                              // Disable on server
+                              await updateSecurityLayer(editingWallet.publicKey, 'biometric', false)
+                              setSecuritySettings(prev => prev ? { ...prev, biometricEnabled: false, biometricCredentialId: null } : null)
+                              setSuccessModal({ show: true, deviceName: 'Biometric', type: 'disabled', deviceType: 'biometric' })
+                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                              setUpdatingSecurityLayer(null)
+                            } catch (error: any) {
+                              setConfirmPasswordError(error.message || "Failed to disable biometric")
+                            }
+                          }
+                        })
+                        return
                       }
                     } catch (error: any) {
                       console.error('[Biometric] Disable error:', error)
@@ -11919,7 +12105,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up Biometric',
-                      message: 'Enter this wallet\'s password to configure FaceID/TouchID verification.',
+                      message: 'Enter your vault password to configure FaceID/TouchID verification.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -12072,7 +12258,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up Voice for This Wallet',
-                      message: 'Enter this wallet\'s password to set up voice verification for transactions.',
+                      message: 'Enter your vault password to set up voice verification for transactions.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -12133,12 +12319,53 @@ function IndexPopup() {
                         return
                       }
                       
-                      // Open voice verification modal with enrolled fingerprint
+                      // Create password fallback function for imported wallets or voice mismatch
+                      const handlePasswordFallback = () => {
+                        setVoiceEnrollmentModal({ show: false, mode: 'enroll', walletAddress: '' })
+                        setConfirmPassword("")
+                        setConfirmPasswordError("")
+                        setConfirmModal({
+                          show: true,
+                          title: 'Disable Voice Layer',
+                          message: 'Enter your vault password to disable voice verification.',
+                          confirmText: 'Disable',
+                          danger: true,
+                          requirePassword: true,
+                          onConfirm: async (password?: string) => {
+                            if (!password) {
+                              setConfirmPasswordError("Password is required")
+                              return
+                            }
+                            try {
+                              const response = await verifyServerPassword(editingWallet.publicKey, password)
+                              if (!response.success) {
+                                setConfirmPasswordError("Incorrect password")
+                                return
+                              }
+                              
+                              setConfirmModal({ show: false, title: '', message: '', onConfirm: () => {} })
+                              setUpdatingSecurityLayer('voice')
+                              
+                              // Disable on server
+                              await updateSecurityLayer(editingWallet.publicKey, 'voice', false)
+                              setSecuritySettings(prev => prev ? { ...prev, voiceLayerEnabled: false } : null)
+                              setSuccessModal({ show: true, deviceName: 'Voice Layer', type: 'disabled', deviceType: 'voice' })
+                              setTimeout(() => setSuccessModal({ show: false, deviceName: '', type: 'enabled', deviceType: 'usb' }), 3500)
+                              setUpdatingSecurityLayer(null)
+                            } catch (error: any) {
+                              setConfirmPasswordError(error.message || "Failed to disable voice")
+                            }
+                          }
+                        })
+                      }
+                      
+                      // Open voice verification modal with enrolled fingerprint and password fallback
                       setVoiceEnrollmentModal({
                         show: true,
                         mode: 'verify-to-disable',
                         walletAddress: editingWallet.publicKey,
-                        enrolledFingerprint: fpResult.fingerprint
+                        enrolledFingerprint: fpResult.fingerprint,
+                        onPasswordFallback: handlePasswordFallback
                       })
                     } catch (error: any) {
                       console.error('[Voice Layer] Disable error:', error)
@@ -12170,7 +12397,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: 'Set Up Voice Layer',
-                      message: 'Enter this wallet\'s password to record your voice phrase for transaction security.',
+                      message: 'Enter your vault password to record your voice phrase for transaction security.',
                       confirmText: 'Continue',
                       danger: false,
                       requirePassword: true,
@@ -12315,7 +12542,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: t('revealPrivateKey', lang),
-                      message: 'Enter this wallet\'s password to reveal your private key.',
+                      message: 'Enter your vault password to reveal your private key.',
                       confirmText: t('reveal', lang),
                       danger: false,
                       requirePassword: true,
@@ -12468,7 +12695,7 @@ function IndexPopup() {
                     setConfirmModal({
                       show: true,
                       title: t('revealRecoveryPhrase', lang),
-                      message: 'Enter this wallet\'s password to reveal your recovery phrase.',
+                      message: 'Enter your vault password to reveal your recovery phrase.',
                       confirmText: t('reveal', lang),
                       danger: false,
                       requirePassword: true,
@@ -12769,6 +12996,7 @@ function IndexPopup() {
             mode={voiceEnrollmentModal.mode}
             walletAddress={voiceEnrollmentModal.walletAddress}
             enrolledFingerprint={voiceEnrollmentModal.enrolledFingerprint}
+            onPasswordFallback={voiceEnrollmentModal.onPasswordFallback}
             onComplete={async (result) => {
               setVoiceEnrollmentModal(prev => ({ ...prev, show: false }))
               
@@ -13130,6 +13358,26 @@ function IndexPopup() {
 
           {/* Footer Buttons */}
           <div style={{ padding: '16px 20px' }}>
+            {/* Ghost Mode Badge - Show when enabled */}
+            {ghostModeEnabled && activeWallet === "master" && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginBottom: 12,
+                padding: '10px 16px',
+                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(88, 28, 135, 0.1) 100%)',
+                border: '1px solid rgba(139, 92, 246, 0.25)',
+                borderRadius: 14
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 2 3 3-3 3 3 2-3 3 3V10a8 8 0 0 0-8-8z"/>
+                </svg>
+                <span style={{ fontSize: 12, color: '#c4b5fd', fontWeight: 600 }}>Ghost Mode</span>
+                <span style={{ fontSize: 11, color: 'rgba(196, 181, 253, 0.6)' }}>• Untraceable transfer</span>
+              </div>
+            )}
             {/* Security Badge for Vault - Minimal inline version */}
             {activeWallet === "vault" && (
               <div style={{
@@ -13443,6 +13691,145 @@ function IndexPopup() {
                   <button onClick={() => setBluetoothErrorModal({ show: false, deviceName: '' })} style={{ flex: 1, padding: '12px 16px', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 12, color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
                   <button onClick={() => { setBluetoothErrorModal({ show: false, deviceName: '' }); handleTransfer(); }} style={{ flex: 1, padding: '12px 16px', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Retry</button>
                 </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Ghost Mode Info Modal */}
+        {showGhostInfoModal && (
+          <>
+            <style>{`
+              @keyframes ghostModalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+              @keyframes ghostModalScaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+              @keyframes ghostFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+            `}</style>
+            <div 
+              onClick={() => setShowGhostInfoModal(false)}
+              style={{ 
+                position: 'fixed', 
+                top: 0, 
+                left: 0, 
+                right: 0, 
+                bottom: 0, 
+                background: 'rgba(0, 0, 0, 0.9)', 
+                backdropFilter: 'blur(16px)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                zIndex: 9999, 
+                animation: 'ghostModalFadeIn 0.2s ease-out forwards',
+                padding: 20
+              }}
+            >
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                style={{ 
+                  background: 'linear-gradient(180deg, #0f0a1a 0%, #0a0a0f 100%)', 
+                  borderRadius: 24, 
+                  padding: '28px 24px', 
+                  width: '100%', 
+                  maxWidth: 340, 
+                  border: '1px solid rgba(139, 92, 246, 0.2)',
+                  boxShadow: '0 24px 48px rgba(139, 92, 246, 0.15)',
+                  animation: 'ghostModalScaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards' 
+                }}
+              >
+                {/* Ghost Icon */}
+                <div style={{ 
+                  width: 72, 
+                  height: 72, 
+                  margin: '0 auto 20px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(88, 28, 135, 0.2) 100%)', 
+                  borderRadius: '50%',
+                  animation: 'ghostFloat 3s ease-in-out infinite'
+                }}>
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 2 3 3-3 3 3 2-3 3 3V10a8 8 0 0 0-8-8z"/>
+                  </svg>
+                </div>
+                
+                <h3 style={{ fontSize: 20, fontWeight: 700, color: '#fff', margin: '0 0 8px 0', textAlign: 'center' }}>
+                  Ghost Mode
+                </h3>
+                <p style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.5)', margin: '0 0 20px 0', textAlign: 'center', lineHeight: 1.5 }}>
+                  Send funds anonymously using zero-knowledge proofs
+                </p>
+                
+                {/* What's Hidden */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#8b5cf6', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    What's Hidden
+                  </div>
+                  {['Your wallet address (sender)', 'Link between you and recipient', 'Your transaction history'].map((item, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
+                        <path d="M20 6L9 17l-5-5"/>
+                      </svg>
+                      <span style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.7)' }}>{item}</span>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* What's Visible */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255, 255, 255, 0.4)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Still Visible
+                  </div>
+                  {['Recipient address', 'Amount (to recipient only)'].map((item, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10"/>
+                      </svg>
+                      <span style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.5)' }}>{item}</span>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Fee Info */}
+                <div style={{
+                  background: 'rgba(139, 92, 246, 0.1)',
+                  borderRadius: 12,
+                  padding: '12px 14px',
+                  marginBottom: 20,
+                  border: '1px solid rgba(139, 92, 246, 0.15)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M12 6v6l4 2"/>
+                    </svg>
+                    <span style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.7)' }}>
+                      ~0.5% fee + small rent • Min: 0.01 SOL or 1 USDC
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Powered By */}
+                <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                  <span style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.3)' }}>Powered by </span>
+                  <span style={{ fontSize: 10, color: 'rgba(139, 92, 246, 0.7)', fontWeight: 600 }}>Privacy Cash</span>
+                </div>
+                
+                <button
+                  onClick={() => setShowGhostInfoModal(false)}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                    border: 'none',
+                    borderRadius: 14,
+                    color: '#fff',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Got it
+                </button>
               </div>
             </div>
           </>
@@ -13778,6 +14165,123 @@ function IndexPopup() {
               </span>
             </div>
           </div>
+
+          {/* Ghost Mode Toggle - Only for MasterKey, SOL or USDC */}
+          {activeWallet === "master" && (selectedToken?.symbol === "SOL" || selectedToken?.mint === "So11111111111111111111111111111111111111112" || selectedToken?.mint === "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v") && (
+            <div style={{
+              background: ghostModeEnabled 
+                ? 'linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(88, 28, 135, 0.15) 100%)'
+                : 'rgba(255, 255, 255, 0.03)',
+              border: ghostModeEnabled 
+                ? '1px solid rgba(139, 92, 246, 0.3)'
+                : '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: 16,
+              padding: '14px 16px',
+              marginBottom: 12,
+              transition: 'all 0.3s ease'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {/* Ghost icon */}
+                  <div style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    background: ghostModeEnabled 
+                      ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)'
+                      : 'rgba(255, 255, 255, 0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.3s ease'
+                  }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={ghostModeEnabled ? '#fff' : 'rgba(255,255,255,0.5)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 2 3 3-3 3 3 2-3 3 3V10a8 8 0 0 0-8-8z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div style={{ 
+                      fontSize: 14, 
+                      fontWeight: 600, 
+                      color: ghostModeEnabled ? '#c4b5fd' : 'rgba(255, 255, 255, 0.8)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}>
+                      Ghost Mode
+                      <button 
+                        onClick={() => setShowGhostInfoModal(true)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(139, 92, 246, 0.6)" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10"/>
+                          <path d="M12 16v-4M12 8h.01"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.4)', marginTop: 2 }}>
+                      {ghostModeEnabled ? 'Untraceable transfer enabled' : 'Hide sender from recipient'}
+                    </div>
+                  </div>
+                </div>
+                {/* Toggle Switch */}
+                <button
+                  onClick={() => setGhostModeEnabled(!ghostModeEnabled)}
+                  style={{
+                    width: 48,
+                    height: 28,
+                    borderRadius: 14,
+                    background: ghostModeEnabled 
+                      ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)'
+                      : 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    position: 'relative',
+                    transition: 'all 0.3s ease',
+                    padding: 0
+                  }}
+                >
+                  <div style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: '#fff',
+                    position: 'absolute',
+                    top: 3,
+                    left: ghostModeEnabled ? 23 : 3,
+                    transition: 'left 0.3s ease',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }} />
+                </button>
+              </div>
+              
+              {/* Fee estimate when enabled */}
+              {ghostModeEnabled && (
+                <div style={{
+                  marginTop: 12,
+                  paddingTop: 12,
+                  borderTop: '1px solid rgba(139, 92, 246, 0.2)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.4)' }}>
+                    Privacy fee (~0.5% + rent)
+                  </span>
+                  <span style={{ fontSize: 11, color: '#a78bfa', fontWeight: 500 }}>
+                    {ghostFeeEstimate?.feeFormatted || '~0.5%'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Vault gas fee notice */}
           {activeWallet === "vault" && (

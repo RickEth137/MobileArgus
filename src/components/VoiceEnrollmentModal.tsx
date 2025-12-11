@@ -15,6 +15,7 @@ interface VoiceEnrollmentModalProps {
   enrolledFingerprint?: string;
   onComplete: (result: { success: boolean; fingerprint?: string; error?: string }) => void;
   onClose: () => void;
+  onPasswordFallback?: () => void; // For verify-to-disable mode when voice verification fails
 }
 
 // Sleep utility
@@ -71,7 +72,8 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
   walletAddress,
   enrolledFingerprint,
   onComplete,
-  onClose
+  onClose,
+  onPasswordFallback
 }) => {
   const [currentSample, setCurrentSample] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -592,12 +594,31 @@ export const VoiceEnrollmentModal: React.FC<VoiceEnrollmentModalProps> = ({
           {status}
         </div>
         
+        {/* Password fallback for verify-to-disable mode */}
+        {mode === 'verify-to-disable' && onPasswordFallback && (
+          <button
+            onClick={onPasswordFallback}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255,255,255,0.5)',
+              fontSize: 12,
+              cursor: 'pointer',
+              marginTop: 12,
+              padding: '8px 16px',
+              textDecoration: 'underline'
+            }}
+          >
+            Use password instead
+          </button>
+        )}
+        
         {/* Footer */}
         <div style={{
           fontSize: 9,
           color: 'rgba(255,255,255,0.3)',
           textAlign: 'center',
-          marginTop: 16,
+          marginTop: mode === 'verify-to-disable' && onPasswordFallback ? 8 : 16,
           paddingTop: 12,
           borderTop: '1px solid rgba(255,255,255,0.1)'
         }}>

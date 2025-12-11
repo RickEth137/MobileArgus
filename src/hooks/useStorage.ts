@@ -1,10 +1,13 @@
 // Replacement for @plasmohq/storage/hook for web environment
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // Special symbol to indicate "loaded but no value" vs "still loading"
 const EMPTY_VALUE = Symbol('EMPTY_VALUE');
 
-export function useStorage<T>(key: string, defaultValue?: T): [T | undefined, (value: T) => void, { setRenderValue: (value: T) => void, setStoreValue: (value: T) => void, remove: () => void, isLoading: boolean }] {
+// Type for the setValue function that supports both direct values and updater functions
+type SetValueFn<T> = (value: T | ((prev: T | undefined) => T)) => void;
+
+export function useStorage<T>(key: string, defaultValue?: T): [T | undefined, SetValueFn<T>, { setRenderValue: (value: T) => void, setStoreValue: (value: T) => void, remove: () => void, isLoading: boolean }] {
   const storageKey = `geovault_${key}`;
   
   // Use null as initial state to indicate "loading"
@@ -21,6 +24,10 @@ export function useStorage<T>(key: string, defaultValue?: T): [T | undefined, (v
       return defaultValue !== undefined ? defaultValue : EMPTY_VALUE;
     }
   });
+  
+  // Keep a ref to the current value for functional updates
+  const valueRef = useRef(storedValue);
+  valueRef.current = storedValue;
 
   // Derive loading state
   const isLoading = storedValue === undefined;
@@ -35,10 +42,14 @@ export function useStorage<T>(key: string, defaultValue?: T): [T | undefined, (v
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [storageKey, defaultValue]);
 
-  const setValue = useCallback((value: T) => {
+  const setValue = useCallback((value: T | ((prev: T | undefined) => T)) => {
     try {
-      setStoredValue(value);
-      localStorage.setItem(storageKey, JSON.stringify(value));
+      // Support both direct values and updater functions like React.useState
+      const newValue = typeof value === 'function' 
+        ? (value as (prev: T | undefined) => T)(valueRef.current === EMPTY_VALUE ? undefined : valueRef.current as T | undefined)
+        : value;
+      setStoredValue(newValue);
+      localStorage.setItem(storageKey, JSON.stringify(newValue));
     } catch (error) {
       console.error('Error saving to localStorage:', error);
     }

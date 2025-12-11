@@ -201,18 +201,33 @@ export async function startVoiceEnrollment(walletAddress: string): Promise<{
   }
 }
 
+// Internal storage for collected voice samples during enrollment
+let collectedSamples: number[][] = [];
+
 /**
  * Enroll a single voice sample
+ * @param stepIndex - Optional step index (0-2) for tracking progress
  */
-export async function enrollVoiceSample(): Promise<{
+export async function enrollVoiceSample(stepIndex?: number): Promise<{
   success: boolean
   features?: number[]
+  isPassphraseMatch?: boolean
   error?: string
 }> {
   try {
     const audioData = await recordAudioSample(VOICE_SETUP_CONFIG.maxDuration);
     const features = extractVoiceFeatures(audioData, 44100);
-    return { success: true, features };
+    
+    // Store the sample for later use in completeVoiceEnrollment
+    if (typeof stepIndex === 'number' && stepIndex >= 0 && stepIndex < 3) {
+      collectedSamples[stepIndex] = features;
+    } else {
+      collectedSamples.push(features);
+    }
+    
+    // For now, always return true for isPassphraseMatch (simplified flow)
+    // In a production app, you'd verify against a passphrase
+    return { success: true, features, isPassphraseMatch: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -220,32 +235,39 @@ export async function enrollVoiceSample(): Promise<{
 
 /**
  * Complete voice enrollment with collected samples
+ * If samples are not provided, uses internally collected samples from enrollVoiceSample calls
  */
 export async function completeVoiceEnrollment(
   walletAddress: string,
-  samples: number[][]
+  samples?: number[][]
 ): Promise<{ success: boolean; fingerprint?: string; error?: string }> {
   try {
-    if (samples.length < VOICE_SETUP_CONFIG.requiredSamples) {
+    // Use provided samples or internally collected ones
+    const samplesToUse = samples || collectedSamples;
+    
+    if (samplesToUse.length < VOICE_SETUP_CONFIG.requiredSamples) {
       return { success: false, error: 'Not enough samples' };
     }
     
     // Average the features
     const fingerprint: number[] = [];
-    const featureLength = samples[0].length;
+    const featureLength = samplesToUse[0].length;
     
     for (let i = 0; i < featureLength; i++) {
       let sum = 0;
-      for (const sample of samples) {
+      for (const sample of samplesToUse) {
         sum += sample[i] || 0;
       }
-      fingerprint.push(sum / samples.length);
+      fingerprint.push(sum / samplesToUse.length);
     }
     
     // Store
     const stored = getStoredFingerprints();
     stored[walletAddress] = fingerprint;
     localStorage.setItem(VOICE_STORAGE_KEY, JSON.stringify(stored));
+    
+    // Clear the internally collected samples
+    collectedSamples = [];
     
     return { success: true, fingerprint: JSON.stringify(fingerprint) };
   } catch (error: any) {

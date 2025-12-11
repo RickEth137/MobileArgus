@@ -23,6 +23,7 @@
     "https-browserify": "^1.0.0",
     "motion": "^12.23.25",
     "os-browserify": "^0.3.0",
+    "privacycash": "github:Privacy-Cash/privacy-cash-sdk",
     "process": "^0.11.10",
     "qrcode.react": "^3.1.0",
     "react": "^18.2.0",

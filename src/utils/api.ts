@@ -1,6 +1,6 @@
 // API Client for ARGUS Vault Backend
 
-const API_URL = "https://argus-api-gpcu.onrender.com";
+const API_URL = "https://api.argus.foundation";
 
 export const getServerConfig = async () => {
     const res = await fetch(`${API_URL}/config`);

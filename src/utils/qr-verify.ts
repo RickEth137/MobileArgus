@@ -2,7 +2,7 @@
 // User scans QR with phone → Phone reports WiFi BSSID → Extension saves it
 // During transactions: Phone must be on same WiFi network
 
-const API_BASE = 'https://argus-api-gpcu.onrender.com'
+const API_BASE = 'https://api.argus.foundation'
 
 export interface MobileSession {
   sessionId: string

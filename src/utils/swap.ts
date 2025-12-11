@@ -23,7 +23,7 @@ import { connection } from "./solana"
 // ============================================================================
 
 // ARGUS API Proxy for Jupiter (keeps API key secure on server)
-const ARGUS_API_URL = "https://argus-api-gpcu.onrender.com"
+const ARGUS_API_URL = "https://api.argus.foundation"
 
 // Jupiter Ultra API (recommended - simpler, better slippage handling)
 const JUPITER_ULTRA_ORDER_API = `${ARGUS_API_URL}/jupiter/ultra/order`

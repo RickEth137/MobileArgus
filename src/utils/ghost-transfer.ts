@@ -28,8 +28,7 @@ import {
 import bs58 from "bs58"
 
 // ARGUS API endpoint for Ghost transfers
-// In production, this will be the deployed backend URL
-const GHOST_API_URL = "https://geo-vault-api.onrender.com"
+const GHOST_API_URL = "https://api.argus.foundation"
 
 // Minimum amounts (Privacy Cash requires minimum due to fees)
 const MIN_GHOST_AMOUNT_SOL = 0.01 // 0.01 SOL minimum

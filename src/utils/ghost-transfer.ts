@@ -1,8 +1,7 @@
 /**
  * Ghost Transfer for ARGUS Wallet
  * 
- * Uses Privacy Cash SDK DIRECTLY in the browser/mobile app for private transfers.
- * No backend API needed - ZK proofs are generated client-side.
+ * Uses Privacy Cash via ARGUS backend API to enable private/anonymous SOL and USDC transfers.
  * 
  * HOW IT WORKS:
  * Privacy Cash uses a mixer-pool architecture with zero-knowledge proofs:
@@ -12,21 +11,14 @@
  * The magic: From the user's perspective, it's just ONE "Ghost Send" action.
  * Behind the scenes, we handle shield+withdraw automatically when needed.
  * 
+ * PRIVACY BENEFITS:
+ * - Sender address is hidden (recipient can't see who sent)
+ * - Amount is hidden from chain observers
+ * - Transaction link is broken (no on-chain connection between sender/recipient)
+ * 
  * @module ghost-transfer
+ * @see https://github.com/Privacy-Cash/privacy-cash-sdk
  */
-
-// @ts-ignore - Privacy Cash SDK doesn't have type declarations
-declare module 'privacycash' {
-  export class PrivacyCash {
-    constructor(config: { RPC_url: string; owner: string; enableDebug?: boolean })
-    getPrivateBalance(): Promise<{ lamports: number }>
-    getPrivateBalanceUSDC(): Promise<{ base_units: number }>
-    deposit(params: { lamports: number }): Promise<{ tx: string }>
-    depositUSDC(params: { base_units: number }): Promise<{ tx: string }>
-    withdraw(params: { lamports: number; recipientAddress: string }): Promise<{ tx: string; fee_in_lamports: number }>
-    withdrawUSDC(params: { base_units: number; recipientAddress: string }): Promise<{ tx: string; fee_base_units: number }>
-  }
-}
 
 import { 
   Keypair, 
@@ -35,36 +27,18 @@ import {
 } from "@solana/web3.js"
 import bs58 from "bs58"
 
+// ARGUS API endpoint for Ghost transfers
+const GHOST_API_URL = "https://api.argus.foundation"
+
 // Minimum amounts (Privacy Cash requires minimum due to fees)
 const MIN_GHOST_AMOUNT_SOL = 0.01 // 0.01 SOL minimum
 const MIN_GHOST_AMOUNT_USDC = 1.0 // 1 USDC minimum
 
-// RPC endpoint for Solana mainnet
-const RPC_URL = "https://api.mainnet-beta.solana.com"
-
-// Privacy Cash SDK - lazy loaded
-let PrivacyCashClass: any = null
-
-const loadPrivacyCash = async () => {
-  if (!PrivacyCashClass) {
-    try {
-      // @ts-ignore - Dynamic import of untyped module
-      const module = await import(/* @vite-ignore */ 'privacycash')
-      PrivacyCashClass = module.PrivacyCash
-      console.log("[GhostTransfer] Privacy Cash SDK loaded")
-    } catch (error: any) {
-      console.error("[GhostTransfer] Failed to load SDK:", error)
-      throw new Error("Privacy Cash SDK not available: " + error.message)
-    }
-  }
-  return PrivacyCashClass
-}
-
 export interface GhostBalance {
-  sol: number
-  solFormatted: string
-  usdc: number
-  usdcFormatted: string
+  sol: number // Private SOL balance in lamports
+  solFormatted: string // Formatted SOL amount
+  usdc: number // Private USDC balance in base units (6 decimals)
+  usdcFormatted: string // Formatted USDC amount
 }
 
 export interface GhostTransferResult {
@@ -77,6 +51,7 @@ export interface GhostTransferResult {
   feeFormatted?: string
   error?: string
   errorCode?: "INSUFFICIENT_BALANCE" | "BELOW_MINIMUM" | "SHIELDING_FAILED" | "WITHDRAW_FAILED" | "SDK_ERROR" | "NETWORK_ERROR" | "NOT_AVAILABLE"
+  // For multi-step transactions
   steps?: {
     shield?: { signature: string; status: "pending" | "confirmed" | "failed" }
     withdraw?: { signature: string; status: "pending" | "confirmed" | "failed" }
@@ -86,61 +61,81 @@ export interface GhostTransferResult {
 export interface GhostTransferConfig {
   fromWallet: Keypair
   toAddress: string
-  amount: number
+  amount: number // In lamports for SOL, base units for tokens
   isUsdc?: boolean
+  // Callback for progress updates (for UI)
   onProgress?: (step: "checking" | "shielding" | "waiting" | "withdrawing" | "confirming", message: string) => void
 }
 
 /**
  * Check if Ghost transfers are available
+ * Verifies Privacy Cash program is deployed and relayer is online
  */
 export const isGhostTransferAvailable = async (): Promise<{ 
   available: boolean
   reason?: string 
-  features?: { sol: boolean; usdc: boolean }
+  features?: {
+    sol: boolean
+    usdc: boolean
+  }
 }> => {
   try {
-    await loadPrivacyCash()
+    const response = await fetch(`${GHOST_API_URL}/ghost/status?_t=${Date.now()}`, {
+      signal: AbortSignal.timeout(10000),
+      headers: { 'Cache-Control': 'no-cache' }
+    })
+    
+    if (!response.ok) {
+      return { 
+        available: false, 
+        reason: "Ghost transfer service unavailable" 
+      }
+    }
+    
+    const data = await response.json()
+    
     return { 
-      available: true,
-      features: { sol: true, usdc: true }
+      available: data.available,
+      reason: data.available ? undefined : "Privacy Cash not available",
+      features: {
+        sol: true,
+        usdc: true
+      }
     }
   } catch (error: any) {
+    console.error("[GhostTransfer] Availability check failed:", error)
     return { 
       available: false, 
-      reason: error.message || "Privacy Cash SDK not available" 
+      reason: error.message || "Unable to verify Ghost transfer availability" 
     }
   }
 }
 
 /**
  * Get user's private balance in Privacy Cash pool
+ * This is how much they can ghost-send immediately without needing to shield first
  */
 export const getGhostBalance = async (wallet: Keypair): Promise<GhostBalance> => {
   try {
-    const PrivacyCash = await loadPrivacyCash()
-    const secretKey = bs58.encode(wallet.secretKey)
-    
-    const client = new PrivacyCash({
-      RPC_url: RPC_URL,
-      owner: secretKey,
-      enableDebug: true
+    const response = await fetch(`${GHOST_API_URL}/ghost/balance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secretKey: bs58.encode(wallet.secretKey)
+      })
     })
     
-    const solBalance = await client.getPrivateBalance()
-    let usdcBalance = { base_units: 0 }
-    try {
-      usdcBalance = await client.getPrivateBalanceUSDC()
-    } catch { /* USDC might not be available */ }
+    if (!response.ok) {
+      throw new Error('Failed to get ghost balance')
+    }
     
-    const solLamports = solBalance.lamports || 0
-    const usdcUnits = usdcBalance.base_units || 0
+    const data = await response.json()
     
     return {
-      sol: solLamports,
-      solFormatted: (solLamports / LAMPORTS_PER_SOL).toFixed(4),
-      usdc: usdcUnits,
-      usdcFormatted: (usdcUnits / 1_000_000).toFixed(2)
+      sol: data.balance.sol.lamports || 0,
+      solFormatted: data.balance.sol.formatted || "0.0000",
+      usdc: data.balance.usdc.baseUnits || 0,
+      usdcFormatted: data.balance.usdc.formatted || "0.00"
     }
     
   } catch (error: any) {
@@ -155,7 +150,55 @@ export const getGhostBalance = async (wallet: Keypair): Promise<GhostBalance> =>
 }
 
 /**
- * Execute a Ghost Transfer - runs entirely client-side
+ * Shield funds (deposit into Privacy Cash pool)
+ * This adds to the user's private balance
+ */
+export const shieldFunds = async (
+  wallet: Keypair,
+  amount: number,
+  isUsdc: boolean = false,
+  onProgress?: (message: string) => void
+): Promise<{ success: boolean; error?: string; signature?: string }> => {
+  try {
+    onProgress?.("Shielding funds into privacy pool...")
+    
+    const response = await fetch(`${GHOST_API_URL}/ghost/shield`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        secretKey: bs58.encode(wallet.secretKey),
+        amount,
+        isUsdc
+      })
+    })
+    
+    const data = await response.json()
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Shield failed')
+    }
+    
+    onProgress?.("Funds shielded successfully!")
+    return { success: true, signature: data.signature }
+    
+  } catch (error: any) {
+    console.error("[GhostTransfer] Shield failed:", error)
+    return { 
+      success: false, 
+      error: error.message || "Failed to shield funds" 
+    }
+  }
+}
+
+/**
+ * Execute a Ghost Transfer
+ * 
+ * This is the main function - handles everything seamlessly:
+ * 1. Checks if user has enough private balance
+ * 2. If not enough, shields the required amount first
+ * 3. Then withdraws to recipient address privately
+ * 
+ * From user's perspective: just one "Ghost Send" action
  */
 export const executeGhostTransfer = async (
   config: GhostTransferConfig
@@ -170,6 +213,7 @@ export const executeGhostTransfer = async (
     // Step 1: Validate inputs
     onProgress?.("checking", "Validating transfer...")
     
+    // Validate recipient address
     try {
       new PublicKey(toAddress)
     } catch {
@@ -180,6 +224,7 @@ export const executeGhostTransfer = async (
       }
     }
     
+    // Check minimum amounts
     const minAmount = isUsdc ? MIN_GHOST_AMOUNT_USDC * 1_000_000 : MIN_GHOST_AMOUNT_SOL * LAMPORTS_PER_SOL
     if (amount < minAmount) {
       return {
@@ -189,107 +234,55 @@ export const executeGhostTransfer = async (
       }
     }
     
-    // Step 2: Load SDK and create client
-    onProgress?.("checking", "Loading privacy engine...")
-    const PrivacyCash = await loadPrivacyCash()
-    const secretKey = bs58.encode(fromWallet.secretKey)
-    
-    const client = new PrivacyCash({
-      RPC_url: RPC_URL,
-      owner: secretKey,
-      enableDebug: true
-    })
-    
-    // Step 3: Check private balance
-    onProgress?.("checking", "Checking private balance...")
-    let privateBalance: number
-    if (isUsdc) {
-      const balance = await client.getPrivateBalanceUSDC()
-      privateBalance = balance.base_units || 0
-    } else {
-      const balance = await client.getPrivateBalance()
-      privateBalance = balance.lamports || 0
-    }
-    console.log("[GhostTransfer] Private balance:", privateBalance)
-    
-    // Step 4: Shield if needed
-    let shieldSignature: string | undefined
-    if (privateBalance < amount) {
-      onProgress?.("shielding", "Shielding funds into privacy pool...")
-      console.log("[GhostTransfer] Need to shield", amount, "units")
-      
-      try {
-        let depositResult
-        if (isUsdc) {
-          depositResult = await client.depositUSDC({ base_units: amount })
-        } else {
-          depositResult = await client.deposit({ lamports: amount })
-        }
-        shieldSignature = depositResult?.tx
-        console.log("[GhostTransfer] Shield complete:", shieldSignature)
-        
-        // Wait for indexer
-        onProgress?.("waiting", "Waiting for confirmation...")
-        await new Promise(r => setTimeout(r, 3000))
-      } catch (shieldError: any) {
-        console.error("[GhostTransfer] Shield failed:", shieldError)
-        return {
-          success: false,
-          error: "Failed to shield funds: " + shieldError.message,
-          errorCode: "SHIELDING_FAILED"
-        }
-      }
-    }
-    
-    // Step 5: Withdraw to recipient
-    onProgress?.("withdrawing", "Sending privately to recipient...")
-    console.log("[GhostTransfer] Withdrawing to:", toAddress)
-    
-    let withdrawResult
-    try {
-      if (isUsdc) {
-        withdrawResult = await client.withdrawUSDC({
-          base_units: amount,
-          recipientAddress: toAddress
-        })
-      } else {
-        withdrawResult = await client.withdraw({
-          lamports: amount,
-          recipientAddress: toAddress
-        })
-      }
-    } catch (withdrawError: any) {
-      console.error("[GhostTransfer] Withdraw failed:", withdrawError)
+    // Step 2: Check availability
+    const availability = await isGhostTransferAvailable()
+    if (!availability.available) {
       return {
         success: false,
-        error: "Withdraw failed: " + withdrawError.message,
-        errorCode: "WITHDRAW_FAILED",
-        steps: shieldSignature ? {
-          shield: { signature: shieldSignature, status: "confirmed" }
-        } : undefined
+        error: availability.reason || "Ghost transfers are not available",
+        errorCode: "NOT_AVAILABLE"
       }
     }
     
-    const fee = isUsdc 
-      ? withdrawResult.fee_base_units || 0
-      : withdrawResult.fee_in_lamports || 0
+    // Step 3: Execute ghost transfer via backend API
+    onProgress?.("shielding", "Processing ghost transfer...")
+    
+    // Add cache buster to prevent browser caching issues
+    const response = await fetch(`${GHOST_API_URL}/ghost/transfer?_t=${Date.now()}`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache'
+      },
+      body: JSON.stringify({
+        secretKey: bs58.encode(fromWallet.secretKey),
+        recipient: toAddress,
+        amount,
+        isUsdc
+      })
+    })
+    
+    const data = await response.json()
+    
+    if (!data.success) {
+      return {
+        success: false,
+        error: data.error || "Ghost transfer failed",
+        errorCode: data.step === 'shield' ? "SHIELDING_FAILED" : "WITHDRAW_FAILED"
+      }
+    }
     
     onProgress?.("confirming", "Ghost transfer complete!")
-    console.log("[GhostTransfer] Success! Withdraw sig:", withdrawResult.tx)
     
     return {
       success: true,
-      signature: withdrawResult.tx,
+      signature: data.signatures.withdraw,
       recipientAddress: toAddress,
-      amountFormatted: isUsdc 
-        ? `${(amount / 1_000_000).toFixed(2)} USDC`
-        : `${(amount / LAMPORTS_PER_SOL).toFixed(4)} SOL`,
-      feeFormatted: isUsdc
-        ? `${(fee / 1_000_000).toFixed(4)} USDC`
-        : `${(fee / LAMPORTS_PER_SOL).toFixed(6)} SOL`,
+      amountFormatted: data.amount,
+      feeFormatted: data.fee,
       steps: {
-        shield: shieldSignature ? { signature: shieldSignature, status: "confirmed" } : undefined,
-        withdraw: { signature: withdrawResult.tx, status: "confirmed" }
+        shield: data.signatures.shield ? { signature: data.signatures.shield, status: "confirmed" } : undefined,
+        withdraw: { signature: data.signatures.withdraw, status: "confirmed" }
       }
     }
     
@@ -298,7 +291,7 @@ export const executeGhostTransfer = async (
     return {
       success: false,
       error: error.message || "Ghost transfer failed",
-      errorCode: "SDK_ERROR"
+      errorCode: "NETWORK_ERROR"
     }
   }
 }
@@ -309,105 +302,110 @@ export const executeGhostTransfer = async (
 export const estimateGhostFee = async (
   amount: number,
   isUsdc: boolean = false
-): Promise<{
-  fee: number
-  feeFormatted: string
-  total: number
-  totalFormatted: string
-}> => {
-  // Privacy Cash fees: ~0.35% + rent (~0.006 SOL or ~0.78 USDC)
-  const feeRate = 0.0035
-  const rentFee = isUsdc ? 0.78 * 1_000_000 : 0.006 * LAMPORTS_PER_SOL
-  
-  const percentageFee = Math.floor(amount * feeRate)
-  const totalFee = percentageFee + rentFee
-  const total = amount + totalFee
-  
-  if (isUsdc) {
-    return {
-      fee: totalFee,
-      feeFormatted: `${(totalFee / 1_000_000).toFixed(4)} USDC`,
-      total,
-      totalFormatted: `${(total / 1_000_000).toFixed(2)} USDC`
-    }
-  } else {
-    return {
-      fee: totalFee,
-      feeFormatted: `${(totalFee / LAMPORTS_PER_SOL).toFixed(6)} SOL`,
-      total,
-      totalFormatted: `${(total / LAMPORTS_PER_SOL).toFixed(4)} SOL`
-    }
-  }
-}
-
-/**
- * Shield funds into Privacy Cash pool (for pre-shielding)
- */
-export const shieldFunds = async (
-  wallet: Keypair,
-  amount: number,
-  isUsdc: boolean = false,
-  onProgress?: (message: string) => void
-): Promise<{ success: boolean; error?: string; signature?: string }> => {
+): Promise<{ fee: number; feeFormatted: string; totalWithFee: number }> => {
   try {
-    onProgress?.("Loading privacy engine...")
-    const PrivacyCash = await loadPrivacyCash()
-    const secretKey = bs58.encode(wallet.secretKey)
+    const response = await fetch(`${GHOST_API_URL}/ghost/fees`)
+    const data = await response.json()
     
-    const client = new PrivacyCash({
-      RPC_url: RPC_URL,
-      owner: secretKey,
-      enableDebug: true
-    })
+    const feeRate = data.fees.withdrawFeeRate || 0.005
+    const rentFee = isUsdc 
+      ? (data.fees.withdrawRentFeeUsdc || 0.002) * 1_000_000 
+      : (data.fees.withdrawRentFeeSol || 0.002) * LAMPORTS_PER_SOL
     
-    onProgress?.("Shielding funds...")
-    let result
-    if (isUsdc) {
-      result = await client.depositUSDC({ base_units: amount })
-    } else {
-      result = await client.deposit({ lamports: amount })
+    const percentageFee = Math.floor(amount * feeRate)
+    const totalFee = percentageFee + rentFee
+    
+    return {
+      fee: totalFee,
+      feeFormatted: isUsdc 
+        ? `${(totalFee / 1_000_000).toFixed(4)} USDC`
+        : `${(totalFee / LAMPORTS_PER_SOL).toFixed(6)} SOL`,
+      totalWithFee: amount + totalFee
     }
     
-    onProgress?.("Funds shielded successfully!")
-    return { success: true, signature: result?.tx }
+  } catch (error) {
+    // Return default estimate
+    const fee = isUsdc 
+      ? Math.floor(amount * 0.005) + 2000 // 0.5% + 0.002 USDC
+      : Math.floor(amount * 0.005) + 2_000_000 // 0.5% + 0.002 SOL
     
-  } catch (error: any) {
-    console.error("[GhostTransfer] Shield failed:", error)
-    return { 
-      success: false, 
-      error: error.message || "Failed to shield funds" 
+    return {
+      fee,
+      feeFormatted: isUsdc 
+        ? `~${(fee / 1_000_000).toFixed(4)} USDC`
+        : `~${(fee / LAMPORTS_PER_SOL).toFixed(6)} SOL`,
+      totalWithFee: amount + fee
     }
   }
 }
 
-// Legacy exports for compatibility
-export const getGhostFeeEstimate = estimateGhostFee
-
 /**
- * Get info about ghost transfers for UI display
+ * Get information about ghost transfer support
  */
-export const getGhostTransferInfo = () => ({
-  name: "Ghost Transfer",
-  description: "Send funds privately using zero-knowledge proofs",
-  features: [
-    "Sender address hidden from recipient",
-    "Amount hidden from chain observers", 
-    "Transaction link broken (no on-chain connection)"
-  ],
-  fees: {
-    percentage: "0.35%",
-    rent: "~0.006 SOL"
-  },
-  minimums: {
-    sol: "0.01 SOL",
-    usdc: "1 USDC"
+export const getGhostTransferInfo = async (tokenMint?: string): Promise<{
+  supported: boolean
+  available: boolean
+  reason: string
+  minAmount?: string
+}> => {
+  const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  const availability = await isGhostTransferAvailable()
+  
+  // Check if it's SOL or USDC (only supported tokens for now)
+  const isSol = !tokenMint || tokenMint === "So11111111111111111111111111111111111111112"
+  const isUsdc = tokenMint === USDC_MINT
+  
+  if (!isSol && !isUsdc) {
+    return {
+      supported: false,
+      available: false,
+      reason: "Ghost transfers currently only support SOL and USDC"
+    }
   }
-})
+  
+  if (!availability.available) {
+    return {
+      supported: true,
+      available: false,
+      reason: availability.reason || "Ghost transfers temporarily unavailable"
+    }
+  }
+  
+  return {
+    supported: true,
+    available: true,
+    reason: "Ghost transfers available",
+    minAmount: isSol ? `${MIN_GHOST_AMOUNT_SOL} SOL` : `${MIN_GHOST_AMOUNT_USDC} USDC`
+  }
+}
 
 /**
- * Get explanation of ghost transfer for UI
+ * Format a ghost transfer explanation for the user
  */
-export const getGhostTransferExplanation = () => 
-  "Ghost transfers use Privacy Cash's zero-knowledge proof mixer. " +
-  "Your funds are first shielded into a privacy pool, then withdrawn to the recipient. " +
-  "This breaks the on-chain link between sender and recipient, providing financial privacy."
+export const getGhostTransferExplanation = (): {
+  title: string
+  description: string
+  whatIsHidden: string[]
+  whatIsVisible: string[]
+  howItWorks: string[]
+  warning: string
+} => ({
+  title: "Ghost Transaction",
+  description: "Ghost transactions use Privacy Cash's ZK-proof mixer to make your transfer untraceable. The recipient cannot see who sent the funds.",
+  whatIsHidden: [
+    "Your wallet address (sender)",
+    "Connection between sender & recipient",
+    "Your transaction history"
+  ],
+  whatIsVisible: [
+    "Recipient address",
+    "Amount received (to recipient)",
+    "That a privacy withdrawal occurred"
+  ],
+  howItWorks: [
+    "Funds enter a shared privacy pool",
+    "Zero-knowledge proofs verify validity",
+    "Funds exit to recipient anonymously"
+  ],
+  warning: "Ghost transfers have a ~0.5% fee + small rent cost. Minimum: 0.01 SOL or 1 USDC."
+})

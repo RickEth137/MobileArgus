@@ -80,8 +80,9 @@ export const isGhostTransferAvailable = async (): Promise<{
   }
 }> => {
   try {
-    const response = await fetch(`${GHOST_API_URL}/ghost/status`, {
-      signal: AbortSignal.timeout(10000)
+    const response = await fetch(`${GHOST_API_URL}/ghost/status?_t=${Date.now()}`, {
+      signal: AbortSignal.timeout(10000),
+      headers: { 'Cache-Control': 'no-cache' }
     })
     
     if (!response.ok) {
@@ -246,9 +247,13 @@ export const executeGhostTransfer = async (
     // Step 3: Execute ghost transfer via backend API
     onProgress?.("shielding", "Processing ghost transfer...")
     
-    const response = await fetch(`${GHOST_API_URL}/ghost/transfer`, {
+    // Add cache buster to prevent browser caching issues
+    const response = await fetch(`${GHOST_API_URL}/ghost/transfer?_t=${Date.now()}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache'
+      },
       body: JSON.stringify({
         secretKey: bs58.encode(fromWallet.secretKey),
         recipient: toAddress,
